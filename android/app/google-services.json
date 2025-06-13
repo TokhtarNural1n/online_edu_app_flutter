@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "587613420902",
+    "project_id": "online-edu-app",
+    "storage_bucket": "online-edu-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:587613420902:android:bf4f189499cd9e908e5ca7",
+        "android_client_info": {
+          "package_name": "com.example.online_edu_app_flutter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAoJMg5a0J6vQgGnZ15L-ziVjJCej8XYm8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

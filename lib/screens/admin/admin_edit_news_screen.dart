@@ -1,0 +1,129 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../models/news_model.dart';
+import '../../view_models/admin_view_model.dart';
+
+class AdminEditNewsScreen extends StatefulWidget {
+  final NewsArticle article; // Принимаем новость для редактирования
+  const AdminEditNewsScreen({super.key, required this.article});
+
+  @override
+  State<AdminEditNewsScreen> createState() => _AdminEditNewsScreenState();
+}
+
+class _AdminEditNewsScreenState extends State<AdminEditNewsScreen> {
+  late TextEditingController _titleController;
+  late TextEditingController _contentController;
+  bool _isLoading = false;
+  XFile? _imageXFile;
+  String? _currentImageUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.article.title);
+    _contentController = TextEditingController(text: widget.article.content);
+    _currentImageUrl = widget.article.imageUrl;
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _contentController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickImage() async {
+    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        _imageXFile = pickedFile;
+        _currentImageUrl = null; // Убираем старую картинку, чтобы показать новую
+      });
+    }
+  }
+
+  void _handleUpdate() async {
+    setState(() { _isLoading = true; });
+    final adminViewModel = Provider.of<AdminViewModel>(context, listen: false);
+
+    String? error = await adminViewModel.updateNewsArticle(
+      newsId: widget.article.id,
+      title: _titleController.text,
+      content: _contentController.text,
+      newImageFile: _imageXFile,
+      oldImageUrl: widget.article.imageUrl,
+    );
+
+    if (mounted) {
+      setState(() { _isLoading = false; });
+      if (error == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Новость успешно обновлена!'), backgroundColor: Colors.green),
+        );
+        Navigator.of(context).pop(true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $error'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Редактировать новость')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            GestureDetector(
+              onTap: _pickImage,
+              child: Container(
+                height: 200,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: _buildImagePreview(),
+              ),
+            ),
+            const SizedBox(height: 24),
+            TextField(controller: _titleController, decoration: const InputDecoration(labelText: 'Заголовок', border: OutlineInputBorder())),
+            const SizedBox(height: 16),
+            TextField(controller: _contentController, decoration: const InputDecoration(labelText: 'Содержание', border: OutlineInputBorder()), maxLines: 8),
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
+              icon: _isLoading ? const SizedBox.shrink() : const Icon(Icons.save),
+              label: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Сохранить изменения'),
+              onPressed: _isLoading ? null : _handleUpdate,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImagePreview() {
+    if (_imageXFile != null) {
+      return ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: kIsWeb
+              ? Image.network(_imageXFile!.path, fit: BoxFit.cover)
+              : Image.file(File(_imageXFile!.path), fit: BoxFit.cover),
+      );
+    }
+    if (_currentImageUrl != null && _currentImageUrl!.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.network(_currentImageUrl!, fit: BoxFit.cover),
+      );
+    }
+    return const Center(child: Text('Нажмите, чтобы выбрать фото'));
+  }
+}
