@@ -1,6 +1,6 @@
+// lib/models/content_item_model.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// Перечисление для всех возможных типов контента
 enum ContentType { lesson, test, material, unknown }
 
 class ContentItem {
@@ -9,14 +9,15 @@ class ContentItem {
   final Timestamp createdAt;
   final ContentType type;
 
-  // Поля, специфичные для видеоурока
+  // Поля для урока
   final String? duration;
   final String? videoUrl;
   final String? content;
 
-  // Другие поля для тестов или материалов можно добавить здесь
-  // final int? questionCount;
-  // final String? fileUrl;
+  // Новые поля для теста
+  final int? questionCount;
+  final int? timeLimitMinutes;
+  final int? passingPercentage;
 
   ContentItem({
     required this.id,
@@ -26,25 +27,20 @@ class ContentItem {
     this.duration,
     this.videoUrl,
     this.content,
+    this.questionCount,
+    this.timeLimitMinutes,
+    this.passingPercentage,
   });
 
   factory ContentItem.fromFirestore(DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-
-    // Определяем тип контента по полю 'type' из базы данных
     ContentType type = ContentType.unknown;
     switch (data['type']) {
-      case 'lesson':
-        type = ContentType.lesson;
-        break;
-      case 'test':
-        type = ContentType.test;
-        break;
-      case 'material':
-        type = ContentType.material;
-        break;
+      case 'lesson': type = ContentType.lesson; break;
+      case 'test': type = ContentType.test; break;
+      case 'material': type = ContentType.material; break;
     }
-    
+
     return ContentItem(
       id: doc.id,
       title: data['title'] ?? 'Без названия',
@@ -53,6 +49,9 @@ class ContentItem {
       duration: data['duration'],
       videoUrl: data['videoUrl'],
       content: data['content'],
+      questionCount: data['questionCount'],
+      timeLimitMinutes: data['timeLimitMinutes'],
+      passingPercentage: data['passingPercentage'],
     );
   }
 }

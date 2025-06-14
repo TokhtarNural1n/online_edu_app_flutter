@@ -46,64 +46,60 @@ class EducationApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final settingsViewModel = Provider.of<SettingsViewModel>(context);
 
+    // Определяем наш основной синий цвет
+    const Color primaryBlue = Colors.blue;
+
     return MaterialApp(
-      title: 'Education App',
-      // Подключение локализации
+      title: 'Education App', 
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       locale: settingsViewModel.appLocale,
-      
-      // Светлая тема
+
+      // --- ОБНОВЛЕННАЯ СВЕТЛАЯ ТЕМА ---
       theme: ThemeData(
-        brightness: Brightness.light,
-        primarySwatch: Colors.teal,
-        scaffoldBackgroundColor: const Color(0xFFF0F4F8),
+        useMaterial3: true, // Включаем современный дизайн Material 3
         fontFamily: 'Inter',
+        // Создаем всю цветовую схему на основе нашего синего цвета
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: primaryBlue,
+          brightness: Brightness.light,
+          // Можно дополнительно настроить фон
+          background: const Color(0xFFF5F7FA), 
+        ),
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent, // Убирает оттенок на AppBar при прокрутке
           elevation: 1,
           iconTheme: IconThemeData(color: Colors.black87),
           titleTextStyle: TextStyle(
             color: Colors.black87,
             fontSize: 20,
             fontWeight: FontWeight.bold,
+            fontFamily: 'Inter',
           ),
         ),
         bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-          selectedItemColor: Color(0xFF007BFF),
-          unselectedItemColor: Colors.grey,
-          backgroundColor: Colors.white,
+          backgroundColor: Colors.white, 
           type: BottomNavigationBarType.fixed,
-        ),
-        cardColor: Colors.white,
+        ), 
       ),
-      
-      // Темная тема
+
+      // --- ОБНОВЛЕННАЯ ТЕМНАЯ ТЕМА ---
       darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        primarySwatch: Colors.teal,
-        scaffoldBackgroundColor: const Color(0xFF121212),
+        useMaterial3: true,
         fontFamily: 'Inter',
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF1E1E1E),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: primaryBlue,
+          brightness: Brightness.dark,
+        ),
+        appBarTheme: const AppBarTheme( 
           elevation: 1,
-        ),
-        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-          selectedItemColor: Color(0xFF4A90E2),
-          unselectedItemColor: Colors.grey,
-          backgroundColor: Color(0xFF1E1E1E),
-          type: BottomNavigationBarType.fixed,
-        ),
-        cardColor: const Color(0xFF1E1E1E),
+        ), 
       ),
-      
-      // Управление темой
+
       themeMode: settingsViewModel.themeMode,
-      
-      debugShowCheckedModeBanner: false,
-      
-      // ГЛАВНОЕ ИЗМЕНЕНИЕ: теперь домашний экран - это AuthWrapper
-      home: const AuthWrapper(),
+      debugShowCheckedModeBanner: false, 
+      home: const AuthWrapper(), 
     );
   }
 }

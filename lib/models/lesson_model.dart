@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'content_item_model.dart';
 
 class Lesson {
   final String id;
@@ -16,6 +17,17 @@ class Lesson {
     required this.content,
     required this.createdAt,
   });
+  factory Lesson.fromContentItem(ContentItem item) {
+    return Lesson(
+      id: item.id,
+      title: item.title,
+      duration: item.duration ?? '',
+      videoUrl: item.videoUrl ?? '',
+      content: item.content ?? '',
+      createdAt: item.createdAt,
+    );
+  }
+  
 
   factory Lesson.fromFirestore(DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;

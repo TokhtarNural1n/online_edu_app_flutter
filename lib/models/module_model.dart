@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'lesson_model.dart';
+import 'content_item_model.dart';
 
 class Module {
   final String id;
@@ -8,7 +8,7 @@ class Module {
   final int fileCount;
   final int testCount;
   final Timestamp createdAt;
-  final List<Lesson> lessons; // Модуль содержит список уроков
+  final List<ContentItem> contentItems;
 
   Module({
     required this.id,
@@ -17,11 +17,11 @@ class Module {
     this.fileCount = 0,
     this.testCount = 0,
     required this.createdAt,
-    this.lessons = const [],
+    this.contentItems = const [],
   });
 
   // Этот конструктор будет принимать готовый список уроков
-  factory Module.fromFirestore(DocumentSnapshot doc, List<Lesson> lessons) {
+  factory Module.fromFirestore(DocumentSnapshot doc, List<ContentItem> contentItems) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
     return Module(
       id: doc.id,
@@ -30,7 +30,7 @@ class Module {
       fileCount: data['fileCount'] ?? 0,
       testCount: data['testCount'] ?? 0,
       createdAt: data['createdAt'] ?? Timestamp.now(),
-      lessons: lessons,
+      contentItems: contentItems,
     );
   }
 }

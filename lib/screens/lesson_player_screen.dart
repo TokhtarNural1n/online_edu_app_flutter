@@ -1,10 +1,21 @@
+// lib/screens/lesson_player_screen.dart
+
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../models/lesson_model.dart';
+import '../view_models/course_view_model.dart';
 
 class LessonPlayerScreen extends StatefulWidget {
   final Lesson lesson;
-  const LessonPlayerScreen({super.key, required this.lesson});
+  // Нам нужен ID курса, чтобы сохранить прогресс
+  final String courseId; 
+
+  const LessonPlayerScreen({
+    super.key, 
+    required this.lesson,
+    required this.courseId,
+  });
 
   @override
   State<LessonPlayerScreen> createState() => _LessonPlayerScreenState();
@@ -12,68 +23,62 @@ class LessonPlayerScreen extends StatefulWidget {
 
 class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
   late YoutubePlayerController _controller;
+  bool _isCompleted = false; // Флаг, чтобы отметить урок пройденным только один раз
 
   @override
   void initState() {
     super.initState();
-    // Извлекаем ID видео из полной ссылки YouTube
     final videoId = YoutubePlayer.convertUrlToId(widget.lesson.videoUrl);
 
-    if (videoId != null) {
-      _controller = YoutubePlayerController(
-        initialVideoId: videoId,
-        flags: const YoutubePlayerFlags(
-          autoPlay: false,
-          mute: false,
-        ),
+    _controller = YoutubePlayerController(
+      initialVideoId: videoId ?? '',
+      flags: const YoutubePlayerFlags(autoPlay: true),
+    )..addListener(_playerListener); // Добавляем "слушателя" состояний
+  }
+
+  void _playerListener() {
+    // Если видео закончилось и мы еще не отмечали его как пройденное
+    if (_controller.value.playerState == PlayerState.ended && !_isCompleted) {
+      setState(() {
+        _isCompleted = true;
+      });
+      // Вызываем метод из ViewModel для сохранения прогресса
+      Provider.of<CourseViewModel>(context, listen: false)
+          .markContentAsCompleted(widget.courseId, widget.lesson.id);
+
+      // Показываем уведомление
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Урок пройден!'), backgroundColor: Colors.green),
       );
     }
   }
 
   @override
   void dispose() {
-    // Убеждаемся, что плеер выключается при закрытии экрана
-    if (mounted) _controller.dispose();
+    _controller.removeListener(_playerListener);
+    _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Если по какой-то причине ссылка на видео некорректна
-    if (YoutubePlayer.convertUrlToId(widget.lesson.videoUrl) == null) {
-      return Scaffold(
-        appBar: AppBar(title: Text(widget.lesson.title)),
-        body: const Center(child: Text('Неверная ссылка на видео.')),
-      );
-    }
-
     return YoutubePlayerBuilder(
       player: YoutubePlayer(controller: _controller),
       builder: (context, player) {
         return Scaffold(
-          appBar: AppBar(
-            title: Text(widget.lesson.title),
-          ),
+          appBar: AppBar(title: Text(widget.lesson.title)),
           body: ListView(
             children: [
-              // Видеоплеер
               player,
-              // Текст урока
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 16),
-                    Text(
-                      widget.lesson.title,
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                    ),
+                    Text(widget.lesson.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                     const Divider(height: 32),
-                    Text(
-                      widget.lesson.content,
-                      style: const TextStyle(fontSize: 16, height: 1.5),
-                    ),
+                    Text(widget.lesson.content, style: const TextStyle(fontSize: 16, height: 1.5)),
                   ],
                 ),
               ),

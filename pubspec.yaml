@@ -25,6 +25,7 @@ dependencies:
   provider: ^6.1.2
   shared_preferences: ^2.2.3
   youtube_player_flutter: ^9.0.1
+  youtube_player_iframe: ^5.1.2 
 
 
 dev_dependencies:

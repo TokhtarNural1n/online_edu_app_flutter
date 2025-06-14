@@ -346,6 +346,8 @@ class AdminViewModel extends ChangeNotifier {
     required String courseId,
     required String moduleId,
     required String title,
+    required int timeLimitMinutes, // Новое поле
+    required int passingPercentage, // Новое поле
     required List<Question> questions,
   }) async {
     if (title.isEmpty) return 'Название теста не может быть пустым.';
@@ -353,10 +355,14 @@ class AdminViewModel extends ChangeNotifier {
 
     try {
       final testDocRef = _firestore.collection('courses').doc(courseId).collection('modules').doc(moduleId).collection('contentItems').doc();
+
+      // Сохраняем новые поля
       await testDocRef.set({
         'type': 'test',
         'title': title,
         'questionCount': questions.length,
+        'timeLimitMinutes': timeLimitMinutes,
+  'passingPercentage': passingPercentage,
         'createdAt': Timestamp.now(),
       });
 
@@ -365,6 +371,7 @@ class AdminViewModel extends ChangeNotifier {
         final questionDocRef = testDocRef.collection('questions').doc();
         batch.set(questionDocRef, {
           'questionText': question.questionText,
+          'imageUrl': question.imageUrl, // Сохраняем URL картинки
           'options': question.options.map((opt) => {'text': opt.text, 'isCorrect': opt.isCorrect}).toList(),
         });
       }
@@ -372,6 +379,21 @@ class AdminViewModel extends ChangeNotifier {
       return null;
     } on FirebaseException catch (e) {
       return e.message;
+    }
+  }
+  Future<String?> uploadQuestionImage(XFile imageFile) async {
+    try {
+      String fileName = 'test_question_images/${DateTime.now().millisecondsSinceEpoch.toString()}';
+      Reference ref = _storage.ref().child(fileName);
+
+      Uint8List fileBytes = await imageFile.readAsBytes();
+      TaskSnapshot snapshot = await ref.putData(fileBytes);
+      String downloadUrl = await snapshot.ref.getDownloadURL();
+      
+      return downloadUrl;
+    } catch (e) {
+      print("Ошибка при загрузке изображения вопроса: $e");
+      return null;
     }
   }
 
