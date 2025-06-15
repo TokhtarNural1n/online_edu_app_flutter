@@ -104,6 +104,7 @@ class _AdminNewsScreenState extends State<AdminNewsScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'news_fab',
         onPressed: () async {
           final result = await Navigator.push(
             context,

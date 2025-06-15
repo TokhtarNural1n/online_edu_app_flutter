@@ -120,6 +120,7 @@ class _AdminCoursesScreenState extends State<AdminCoursesScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'courses_fab',
         onPressed: () async {
           final result = await Navigator.push(
             context,

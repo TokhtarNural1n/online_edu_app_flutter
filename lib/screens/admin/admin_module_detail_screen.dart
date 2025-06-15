@@ -4,6 +4,7 @@ import '../../models/content_item_model.dart';
 import '../../view_models/admin_view_model.dart';
 import 'admin_lesson_screen.dart';
 import 'admin_add_test_screen.dart';
+import 'admin_add_material_screen.dart';
 
 class AdminModuleDetailScreen extends StatefulWidget {
   final String courseId;
@@ -79,10 +80,12 @@ class _AdminModuleDetailScreenState extends State<AdminModuleDetailScreen> {
             ListTile(
               leading: const Icon(Icons.attach_file_outlined),
               title: const Text('Добавить материал'),
-              onTap: () {
-                // TODO: Навигация на экран добавления материалов
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Добавление материалов в разработке')));
+              onTap: () async { // <-- Делаем асинхронным
+                Navigator.pop(context); // Закрываем меню
+                final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => 
+                  AdminAddMaterialScreen(courseId: widget.courseId, moduleId: widget.moduleId)
+                ));
+                if (result == true) _refreshContentList();
               },
             ),
           ],
@@ -136,6 +139,7 @@ class _AdminModuleDetailScreenState extends State<AdminModuleDetailScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'module_detail_fab',
         onPressed: _showAddContentMenu, // <-- Вызываем новое меню
         child: const Icon(Icons.add),
         tooltip: 'Добавить контент',

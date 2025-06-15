@@ -7,6 +7,11 @@ import '../models/content_item_model.dart';
 import '../models/question_model.dart';
 import '../models/my_course_progress_info.dart';
 import '../models/content_item_model.dart';
+import '../models/mock_test_model.dart';
+import '../models/mock_test_attempt_model.dart';
+
+
+
 
 class CourseViewModel extends ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -54,6 +59,180 @@ class CourseViewModel extends ChangeNotifier {
       throw Exception('Не удалось загрузить данные курса.');
     }
   }
+  Future<String?> activatePromoCode(String code) async {
+  final userId = _auth.currentUser?.uid;
+  if (userId == null) {
+    return 'Для активации промокода необходимо войти в систему.';
+  }
+  if (code.isEmpty) {
+    return 'Поле промокода не может быть пустым.';
+  }
+
+  final promoCodeRef = _firestore.collection('promo_codes').doc(code.trim().toUpperCase());
+
+  try {
+    // Выполняем все операции в транзакции, чтобы обеспечить целостность данных.
+    // Это гарантирует, что никто другой не сможет использовать этот же код одновременно.
+    return await _firestore.runTransaction((transaction) async {
+      // 1. Получаем документ промокода
+      final promoDoc = await transaction.get(promoCodeRef);
+
+      // 2. Проверяем, существует ли код и не использован ли он
+      if (!promoDoc.exists) {
+        return 'Промокод не найден.';
+      }
+      if (promoDoc.data()?['isUsed'] == true) {
+        return 'Этот промокод уже был использован.';
+      }
+
+      // 3. Получаем ID курса из промокода
+      final courseId = promoDoc.data()?['courseId'];
+      if (courseId == null) {
+        return 'Ошибка: к этому промокоду не привязан курс.';
+      }
+
+      // 4. Проверяем, нет ли у пользователя уже доступа к этому курсу
+      final enrollmentRef = _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('enrolled_courses')
+          .doc(courseId);
+      final enrollmentDoc = await transaction.get(enrollmentRef);
+      if (enrollmentDoc.exists) {
+        return 'У вас уже есть доступ к этому курсу.';
+      }
+
+      // 5. Обновляем (сжигаем) промокод
+      transaction.update(promoCodeRef, {
+        'isUsed': true,
+        'usedBy': userId,
+        'usedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 6. Предоставляем пользователю доступ к курсу
+      transaction.set(enrollmentRef, {
+        'enrolledAt': FieldValue.serverTimestamp(),
+        'activatedWithCode': code.trim().toUpperCase(),
+      });
+
+      // Возвращаем null, что означает успешное завершение
+      return null;
+    });
+  } on FirebaseException catch (e) {
+    return 'Произошла ошибка: ${e.message}';
+  }
+}
+Future<List<MockTest>> fetchMockTests() async {
+  try {
+    final snapshot = await _firestore.collection('mock_tests').orderBy('createdAt', descending: true).get();
+    return snapshot.docs.map((doc) => MockTest.fromFirestore(doc)).toList();
+  } catch (e) {
+    print("Ошибка при загрузке пробных тестов: $e");
+    return [];
+  }
+}Future<List<Question>> fetchQuestionsForMockTest(String testId) async {
+  try {
+    final snapshot = await _firestore
+        .collection('mock_tests')
+        .doc(testId)
+        .collection('questions')
+        .get();
+
+    if (snapshot.docs.isEmpty) {
+      return [];
+    }
+
+    return snapshot.docs.map((doc) => Question.fromFirestore(doc)).toList();
+  } catch (e) {
+    print("Ошибка при загрузке вопросов пробного теста: $e");
+    return [];
+  }
+}
+  Future<void> saveMockTestAttempt({
+    required String testId,
+    required String testTitle,
+    required int score,
+    required int totalQuestions,
+    required Map<int, int> userAnswers, // <-- НОВЫЙ ПАРАМЕТР
+  }) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    // Конвертируем ключи Map в String, так как Firestore этого требует
+    final answersToSave = userAnswers.map((key, value) => MapEntry(key.toString(), value));
+
+    try {
+      await _firestore
+          .collection('users').doc(userId).collection('mock_test_attempts').add({
+            'testId': testId,
+            'testTitle': testTitle,
+            'score': score,
+            'totalQuestions': totalQuestions,
+            'completedAt': Timestamp.now(),
+            'userAnswers': answersToSave, // <-- СОХРАНЯЕМ ОТВЕТЫ
+          });
+    } catch (e) { /* ... */ }
+  }
+  Future<Set<String>> fetchAttemptedMockTestIds() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return {};
+
+    try {
+      final snapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('mock_test_attempts')
+          .get();
+
+      // Возвращаем набор уникальных ID тестов, которые пытался пройти пользователь
+      return snapshot.docs.map((doc) => doc.data()['testId'] as String).toSet();
+    } catch (e) {
+      print("Ошибка при загрузке попыток тестов: $e");
+      return {};
+    }
+  }
+  Future<MockTestAttempt?> fetchLastMockTestAttempt(String testId) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return null;
+
+    try {
+      final snapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('mock_test_attempts')
+          .where('testId', isEqualTo: testId)
+          .orderBy('completedAt', descending: true) // Сортируем, чтобы последняя была первой
+          .limit(1) // Берем только одну, самую последнюю
+          .get();
+
+      if (snapshot.docs.isNotEmpty) {
+        return MockTestAttempt.fromFirestore(snapshot.docs.first);
+      }
+      return null; // Если попыток не найдено
+    } catch (e) {
+      print("Ошибка при загрузке последней попытки: $e");
+      return null;
+    }
+  }
+  Future<List<MockTestAttempt>> fetchAttemptsForMockTest(String testId) async {
+  final userId = _auth.currentUser?.uid;
+  if (userId == null) return [];
+
+  try {
+    final snapshot = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('mock_test_attempts')
+        .where('testId', isEqualTo: testId) // Находим все попытки для этого теста
+        .orderBy('completedAt', descending: true) // Сортируем от новых к старым
+        .get();
+
+    return snapshot.docs.map((doc) => MockTestAttempt.fromFirestore(doc)).toList();
+  } catch (e) {
+    print("Ошибка при загрузке истории попыток: $e");
+    return [];
+  }
+}
 
   // Метод для "Моих курсов" остается почти без изменений
   Future<List<Course>> fetchMyCourses({String? userId}) async {
@@ -145,62 +324,57 @@ class CourseViewModel extends ChangeNotifier {
     }
   }
   Future<List<MyCourseProgressInfo>> fetchMyCoursesWithProgress() async {
-  // 1. Сначала получаем базовый список курсов пользователя
-  final myCourses = await fetchMyCourses();
-  if (myCourses.isEmpty) return [];
+    final myCourses = await fetchMyCourses();
+    if (myCourses.isEmpty) return [];
 
-  List<MyCourseProgressInfo> progressInfoList = [];
+    List<MyCourseProgressInfo> progressInfoList = [];
 
-  // 2. В цикле для каждого курса получаем детали и считаем прогресс
-  for (final course in myCourses) {
-    // Параллельно загружаем полную структуру курса и ID пройденных уроков
-    final results = await Future.wait([
-      fetchCourseDetails(course.id),
-      fetchCompletedContentIds(course.id),
-    ]);
+    for (final course in myCourses) {
+      final results = await Future.wait([
+        fetchCourseDetails(course.id),
+        fetchCompletedContentIds(course.id),
+      ]);
 
-    final detailedCourse = results[0] as Course;
-    final completedIds = results[1] as Set<String>;
+      final detailedCourse = results[0] as Course;
+      final completedIds = results[1] as Set<String>;
 
-    // 3. Собираем все уроки и тесты курса в один список
-    final allContentItems = detailedCourse.modules
-        .expand((module) => module.contentItems)
-        .toList();
+      final allContentItems = detailedCourse.modules
+          .expand((module) => module.contentItems)
+          .toList();
 
-    // Если в курсе нет контента, показываем прогресс 0%
-    if (allContentItems.isEmpty) {
+      // --- ИЗМЕНЕНИЕ: Создаем список только отслеживаемых элементов (лекции и тесты) ---
+      final trackableItems = allContentItems
+          .where((item) => item.type == ContentType.lesson || item.type == ContentType.test)
+          .toList();
+
+      double progressPercent = 0.0;
+      if (trackableItems.isNotEmpty) {
+        // Считаем пройденные только среди отслеживаемых
+        final completedTrackableItems = trackableItems
+            .where((item) => completedIds.contains(item.id))
+            .length;
+        progressPercent = (completedTrackableItems / trackableItems.length) * 100;
+      }
+
+      // Находим следующий урок для прохождения среди отслеживаемых
+      ContentItem? nextItem;
+      int nextItemAbsoluteIndex = 0;
+      for (int i = 0; i < trackableItems.length; i++) {
+        if (!completedIds.contains(trackableItems[i].id)) {
+          nextItem = trackableItems[i];
+          nextItemAbsoluteIndex = i + 1; // Порядковый номер среди лекций/тестов
+          break;
+        }
+      }
+
       progressInfoList.add(MyCourseProgressInfo(
         course: detailedCourse,
-        progressPercent: 0,
-        lessonNumberToContinue: 1,
-        nextContentItem: null,
+        progressPercent: progressPercent,
+        lessonNumberToContinue: nextItemAbsoluteIndex > 0 ? nextItemAbsoluteIndex : trackableItems.length,
+        nextContentItem: nextItem,
       ));
-      continue; // Переходим к следующему курсу в цикле
     }
 
-    // 4. Считаем процент прогресса
-    final double progressPercent = (completedIds.length / allContentItems.length) * 100;
-
-    // 5. Находим следующий урок для прохождения
-    ContentItem? nextItem;
-    int nextItemAbsoluteIndex = 0;
-    for (int i = 0; i < allContentItems.length; i++) {
-      if (!completedIds.contains(allContentItems[i].id)) {
-        nextItem = allContentItems[i];
-        nextItemAbsoluteIndex = i + 1; // Порядковый номер (напр. "7-й урок")
-        break;
-      }
-    }
-
-    // 6. Собираем всю информацию в один объект и добавляем в финальный список
-    progressInfoList.add(MyCourseProgressInfo(
-      course: detailedCourse,
-      progressPercent: progressPercent,
-      lessonNumberToContinue: nextItemAbsoluteIndex > 0 ? nextItemAbsoluteIndex : allContentItems.length,
-      nextContentItem: nextItem,
-    ));
+    return progressInfoList;
   }
-
-  return progressInfoList;
-}
-}
+} 

@@ -14,10 +14,15 @@ class ContentItem {
   final String? videoUrl;
   final String? content;
 
-  // Новые поля для теста
+  // Поля для теста
   final int? questionCount;
   final int? timeLimitMinutes;
   final int? passingPercentage;
+
+  // --- НОВЫЕ ПОЛЯ ДЛЯ МАТЕРИАЛОВ ---
+  final String? fileUrl;
+  final String? fileName;
+  final String? fileType; // 'pdf', 'pptx', 'png' и т.д.
 
   ContentItem({
     required this.id,
@@ -30,15 +35,19 @@ class ContentItem {
     this.questionCount,
     this.timeLimitMinutes,
     this.passingPercentage,
+    this.fileUrl,
+    this.fileName,
+    this.fileType,
   });
 
   factory ContentItem.fromFirestore(DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-    ContentType type = ContentType.unknown;
+    ContentType type;
     switch (data['type']) {
       case 'lesson': type = ContentType.lesson; break;
       case 'test': type = ContentType.test; break;
       case 'material': type = ContentType.material; break;
+      default: type = ContentType.unknown; break;
     }
 
     return ContentItem(
@@ -52,6 +61,9 @@ class ContentItem {
       questionCount: data['questionCount'],
       timeLimitMinutes: data['timeLimitMinutes'],
       passingPercentage: data['passingPercentage'],
+      fileUrl: data['fileUrl'],
+      fileName: data['fileName'],
+      fileType: data['fileType'],
     );
   }
 }

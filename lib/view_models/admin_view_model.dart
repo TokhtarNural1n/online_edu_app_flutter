@@ -10,6 +10,15 @@ import '../models/lesson_model.dart';
 import '../models/content_item_model.dart';
 import '../models/question_model.dart'; 
 import '../models/option_model.dart';
+import 'dart:math';
+import '../models/promo_code_model.dart';
+import '../models/enrollment_model.dart';
+import '../models/enrollment_detail_model.dart';
+import '../models/course_model.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io';
+import '../models/mock_test_model.dart';
 
 
 class AdminViewModel extends ChangeNotifier {
@@ -29,7 +38,14 @@ class AdminViewModel extends ChangeNotifier {
 
   Future<String?> grantCourseAccess({required String userId, required String courseId}) async {
     try {
-      await _firestore.collection('users').doc(userId).collection('enrolled_courses').doc(courseId).set({'enrolledAt': Timestamp.now()});
+      await _firestore
+          .collection('users').doc(userId)
+          .collection('enrolled_courses').doc(courseId)
+          .set({
+            // ИЗМЕНЕНИЕ: Используем серверное время вместо времени устройства
+            'enrolledAt': FieldValue.serverTimestamp(), 
+            'grantMethod': 'admin'
+          });
       return null;
     } on FirebaseException catch (e) {
       return e.message;
@@ -44,6 +60,101 @@ class AdminViewModel extends ChangeNotifier {
       return e.message;
     }
   }
+  Future<String?> generatePromoCodes({
+    required String courseId,
+    required String courseTitle,
+    required int count,
+  }) async {
+    if (count <= 0) {
+      return 'Количество кодов должно быть больше нуля.';
+    }
+    try {
+      // Используем пакетную запись для эффективности
+      final batch = _firestore.batch();
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      final random = Random();
+
+      for (int i = 0; i < count; i++) {
+        // Генерируем случайный 8-значный код
+        final promoCode = String.fromCharCodes(Iterable.generate(
+            8, (_) => chars.codeUnitAt(random.nextInt(chars.length))));
+
+        // Готовим документ для добавления в базу
+        final docRef = _firestore.collection('promo_codes').doc(promoCode);
+        batch.set(docRef, {
+          'courseId': courseId,
+          'courseTitle': courseTitle,
+          'createdAt': Timestamp.now(),
+          'isUsed': false,
+          'usedBy': null,
+          'usedAt': null,
+        });
+      }
+
+      // Отправляем все сгенерированные коды в базу одной операцией
+      await batch.commit();
+      return null; // Успех
+    } on FirebaseException catch (e) {
+      return e.message;
+    }
+  }
+  Future<List<PromoCode>> fetchPromoCodesForCourse(String courseId) async {
+    try {
+      final snapshot = await _firestore
+          .collection('promo_codes')
+          .where('courseId', isEqualTo: courseId)
+          .where('isUsed', isEqualTo: false) // Показываем только активные коды
+          .get();
+      return snapshot.docs.map((doc) => PromoCode.fromFirestore(doc)).toList();
+    } catch (e) {
+      print("Ошибка при загрузке промокодов: $e");
+      return [];
+    }
+  }
+
+  Future<List<EnrollmentDetail>> fetchUserEnrollments(String userId) async {
+  try {
+    // 1. Получаем все документы о зачислении
+    final enrolledSnapshot = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('enrolled_courses')
+        .get();
+
+    if (enrolledSnapshot.docs.isEmpty) return [];
+
+    List<Enrollment> enrollments = enrolledSnapshot.docs
+        .map((doc) => Enrollment.fromFirestore(doc))
+        .toList();
+
+    // 2. Получаем ID всех курсов
+    final courseIds = enrollments.map((e) => e.courseId).toList();
+    if (courseIds.isEmpty) return [];
+
+    // 3. Загружаем данные самих курсов
+    final coursesSnapshot = await _firestore
+        .collection('courses')
+        .where(FieldPath.documentId, whereIn: courseIds)
+        .get();
+
+    final coursesMap = {for (var doc in coursesSnapshot.docs) doc.id: Course.fromFirestore(doc, [])};
+
+    // 4. Объединяем данные о курсе и о зачислении
+    List<EnrollmentDetail> enrollmentDetails = [];
+    for (var enrollment in enrollments) {
+      if (coursesMap.containsKey(enrollment.courseId)) {
+        enrollmentDetails.add(EnrollmentDetail(
+          course: coursesMap[enrollment.courseId]!,
+          enrollment: enrollment,
+        ));
+      }
+    }
+    return enrollmentDetails;
+  } catch (e) {
+    print("Ошибка при загрузке зачислений: $e");
+    return [];
+  }
+}
 
   // --- Методы для новостей ---
   Future<List<NewsArticle>> fetchNews() async {
@@ -396,6 +507,59 @@ class AdminViewModel extends ChangeNotifier {
       return null;
     }
   }
+  // lib/view_models/admin_view_model.dart
+
+/// Загружает файл материала в Storage и возвращает ссылку
+Future<String?> uploadCourseMaterial(PlatformFile file) async {
+  try {
+    String fileName = 'course_materials/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+    Reference ref = _storage.ref().child(fileName);
+
+    TaskSnapshot snapshot;
+    // Для веба мы используем байты файла, для мобильных - путь к файлу (это эффективнее)
+    if (kIsWeb) {
+      if (file.bytes == null) return null; // Проверка на всякий случай
+      snapshot = await ref.putData(file.bytes!);
+    } else {
+      if (file.path == null) return null; // Проверка на всякий случай
+      snapshot = await ref.putFile(File(file.path!));
+    }
+
+    String downloadUrl = await snapshot.ref.getDownloadURL();
+    return downloadUrl;
+  } catch (e) {
+    print("Ошибка при загрузке материала: $e");
+    return null;
+  }
+}
+
+/// Добавляет информацию о материале в Firestore
+Future<String?> addMaterial({
+  required String courseId,
+  required String moduleId,
+  required String title,
+  required String fileUrl,
+  required String fileName,
+  required String fileType,
+}) async {
+  try {
+    await _firestore
+        .collection('courses').doc(courseId)
+        .collection('modules').doc(moduleId)
+        .collection('contentItems')
+        .add({
+          'type': 'material',
+          'title': title,
+          'fileUrl': fileUrl,
+          'fileName': fileName,
+          'fileType': fileType,
+          'createdAt': Timestamp.now(),
+        });
+    return null;
+  } on FirebaseException catch (e) {
+    return e.message;
+  }
+}
 
   Future<String?> deleteContentItem({
     required String courseId,
@@ -407,4 +571,67 @@ class AdminViewModel extends ChangeNotifier {
       return null;
     } on FirebaseException catch (e) { return e.message; }
   }
+
+/// Загружает все созданные пробные тесты
+Future<List<MockTest>> fetchAllMockTests() async {
+  try {
+    final snapshot = await _firestore.collection('mock_tests').orderBy('createdAt', descending: true).get();
+    return snapshot.docs.map((doc) => MockTest.fromFirestore(doc)).toList();
+  } catch (e) {
+    print("Ошибка при загрузке пробных тестов: $e");
+    return [];
+  }
+}
+
+/// Добавляет новый пробный тест и вопросы к нему
+Future<String?> addMockTest({
+  required String title,
+  required String subject,
+  required String language,
+  required int timeLimitMinutes,
+  required List<Question> questions,
+}) async {
+  if (title.isEmpty || subject.isEmpty) return 'Название и предмет не могут быть пустыми.';
+  if (questions.isEmpty) return 'Тест должен содержать хотя бы один вопрос.';
+
+  try {
+    // Создаем основной документ для теста
+    final testDocRef = _firestore.collection('mock_tests').doc();
+    await testDocRef.set({
+      'title': title,
+      'subject': subject,
+      'language': language,
+      'questionCount': questions.length,
+      'timeLimitMinutes': timeLimitMinutes,
+      'createdAt': Timestamp.now(),
+    });
+
+    // Пакетной записью добавляем все вопросы в подколлекцию
+    WriteBatch batch = _firestore.batch();
+    for (var question in questions) {
+      final questionDocRef = testDocRef.collection('questions').doc();
+      batch.set(questionDocRef, {
+        'questionText': question.questionText,
+        'imageUrl': question.imageUrl,
+        'options': question.options.map((opt) => {'text': opt.text, 'isCorrect': opt.isCorrect}).toList(),
+      });
+    }
+    await batch.commit();
+    return null;
+  } on FirebaseException catch (e) {
+    return e.message;
+  }
+}
+
+/// Удаляет пробный тест (вместе с вопросами)
+Future<String?> deleteMockTest({required String testId}) async {
+  try {
+    // В реальном приложении здесь нужна будет Cloud Function для каскадного удаления
+    // подколлекции с вопросами. Пока что мы удаляем только основной документ.
+    await _firestore.collection('mock_tests').doc(testId).delete();
+    return null;
+  } on FirebaseException catch (e) {
+    return e.message;
+  }
+}
 }

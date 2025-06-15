@@ -1,6 +1,6 @@
 // lib/screens/test_player_screen.dart
 
-import 'dart:async'; // Для таймера
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/content_item_model.dart';
@@ -29,7 +29,6 @@ class _TestPlayerScreenState extends State<TestPlayerScreen> {
   int _currentQuestionIndex = 0;
   final Map<int, int> _userAnswers = {};
 
-  // --- Новые поля для таймера ---
   Timer? _timer;
   Duration? _remainingTime;
 
@@ -42,7 +41,6 @@ class _TestPlayerScreenState extends State<TestPlayerScreen> {
       moduleId: widget.moduleId,
       testId: widget.testItem.id,
     );
-    // Запускаем таймер
     _startTimer();
   }
 
@@ -50,13 +48,15 @@ class _TestPlayerScreenState extends State<TestPlayerScreen> {
     if (widget.testItem.timeLimitMinutes != null) {
       _remainingTime = Duration(minutes: widget.testItem.timeLimitMinutes!);
       _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        if (_remainingTime!.inSeconds == 0) {
+        if (_remainingTime!.inSeconds <= 0) {
           timer.cancel();
-          _finishTest(); // Завершаем тест, если время вышло
+          _finishTest();
         } else {
-          setState(() {
-            _remainingTime = Duration(seconds: _remainingTime!.inSeconds - 1);
-          });
+          if (mounted) {
+            setState(() {
+              _remainingTime = Duration(seconds: _remainingTime!.inSeconds - 1);
+            });
+          }
         }
       });
     }
@@ -64,9 +64,17 @@ class _TestPlayerScreenState extends State<TestPlayerScreen> {
 
   @override
   void dispose() {
-    // Обязательно останавливаем таймер при выходе с экрана
     _timer?.cancel();
     super.dispose();
+  }
+
+  // --- НОВЫЙ МЕТОД: для перехода к предыдущему вопросу ---
+  void _previousQuestion() {
+    if (_currentQuestionIndex > 0) {
+      setState(() {
+        _currentQuestionIndex--;
+      });
+    }
   }
 
   void _handleNext(int totalQuestions) {
@@ -81,7 +89,6 @@ class _TestPlayerScreenState extends State<TestPlayerScreen> {
 
   void _finishTest() {
     _timer?.cancel();
-
     _questionsFuture.then((questions) {
       int score = 0;
       for (int i = 0; i < questions.length; i++) {
@@ -96,10 +103,9 @@ class _TestPlayerScreenState extends State<TestPlayerScreen> {
           builder: (context) => TestResultsScreen(
             score: score,
             totalQuestions: questions.length,
-            // Передаем новые данные, необходимые для экрана результатов
             questions: questions,
             userAnswers: _userAnswers,
-            testItem: widget.testItem, 
+            testItem: widget.testItem,
             courseId: widget.courseId,
             moduleId: widget.moduleId,
           ),
@@ -108,7 +114,6 @@ class _TestPlayerScreenState extends State<TestPlayerScreen> {
     });
   }
 
-  // Форматируем время для отображения (напр. "01:30:05")
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     String hours = twoDigits(duration.inHours);
@@ -123,7 +128,6 @@ class _TestPlayerScreenState extends State<TestPlayerScreen> {
       appBar: AppBar(
         title: Text(widget.testItem.title, style: const TextStyle(fontSize: 16)),
         actions: [
-          // --- Виджет Таймера ---
           if (_remainingTime != null)
             Padding(
               padding: const EdgeInsets.only(right: 16.0),
@@ -160,20 +164,15 @@ class _TestPlayerScreenState extends State<TestPlayerScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // --- Индикатор вопроса ---
                       Text(
-                        '${_currentQuestionIndex + 1} - вопрос',
-                        style: TextStyle(
-                            color: Theme.of(context).primaryColor,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold),
+                        'Вопрос ${_currentQuestionIndex + 1} из ${questions.length}',
+                        style: const TextStyle(color: Colors.grey, fontSize: 16),
                       ),
                       const SizedBox(height: 16),
                       Text(
                         currentQuestion.questionText,
-                        style: const TextStyle(fontSize: 18),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
-
                       if (currentQuestion.imageUrl != null && currentQuestion.imageUrl!.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 16.0),
@@ -187,47 +186,32 @@ class _TestPlayerScreenState extends State<TestPlayerScreen> {
                             ),
                           ),
                         ),
-                      
                       const SizedBox(height: 24),
-
-                      // --- Новый вид вариантов ответов ---
                       ...List.generate(currentQuestion.options.length, (index) {
-                        final isSelected = _userAnswers[_currentQuestionIndex] == index;
-                        return GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _userAnswers[_currentQuestionIndex] = index;
-                            });
-                          },
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(vertical: 6),
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: isSelected 
-                                ? Theme.of(context).primaryColor.withOpacity(0.1) 
-                                : Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: isSelected 
-                                  ? Theme.of(context).primaryColor 
-                                  : Colors.grey.shade300,
-                                width: 1.5,
-                              ),
+                        return Container(
+                          margin: const EdgeInsets.symmetric(vertical: 5),
+                          decoration: BoxDecoration(
+                            color: _userAnswers[_currentQuestionIndex] == index
+                                ? Theme.of(context).primaryColor.withOpacity(0.1)
+                                : null,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _userAnswers[_currentQuestionIndex] == index
+                                ? Theme.of(context).primaryColor
+                                : Colors.grey.shade300,
                             ),
-                            child: Row(
-                              children: [
-                                Radio<int>(
-                                  value: index,
-                                  groupValue: _userAnswers[_currentQuestionIndex],
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _userAnswers[_currentQuestionIndex] = value!;
-                                    });
-                                  },
-                                ),
-                                Expanded(child: Text(currentQuestion.options[index].text)),
-                              ],
-                            ),
+                          ),
+                          child: RadioListTile<int>(
+                            title: Text(currentQuestion.options[index].text),
+                            value: index,
+                            groupValue: _userAnswers[_currentQuestionIndex],
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() {
+                                  _userAnswers[_currentQuestionIndex] = value;
+                                });
+                              }
+                            },
                           ),
                         );
                       }),
@@ -235,19 +219,31 @@ class _TestPlayerScreenState extends State<TestPlayerScreen> {
                   ),
                 ),
               ),
-              // --- Кнопка внизу экрана ---
+              // --- ОБНОВЛЕННЫЙ БЛОК НАВИГАЦИИ ---
               Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: ElevatedButton(
-                  onPressed: () => _handleNext(questions.length),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: Text(
-                    isLastQuestion ? 'Завершить тест' : 'Следующий вопрос',
-                    style: const TextStyle(fontSize: 16),
-                  ),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Кнопка "Назад"
+                    OutlinedButton(
+                      // Кнопка неактивна на первом вопросе
+                      onPressed: _currentQuestionIndex == 0 ? null : _previousQuestion,
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      ),
+                      child: const Text('Назад'),
+                    ),
+                    // Кнопка "Далее" или "Завершить"
+                    ElevatedButton(
+                      onPressed: () => _handleNext(questions.length),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        backgroundColor: isLastQuestion ? Colors.green : null,
+                      ),
+                      child: Text(isLastQuestion ? 'Завершить тест' : 'Следующий вопрос'),
+                    ),
+                  ],
                 ),
               ),
             ],

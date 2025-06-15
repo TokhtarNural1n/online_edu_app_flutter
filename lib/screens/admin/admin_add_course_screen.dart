@@ -1,3 +1,5 @@
+// lib/screens/admin/admin_add_course_screen.dart
+
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -42,6 +44,14 @@ class _AdminAddCourseScreenState extends State<AdminAddCourseScreen> {
   }
 
   void _handlePublish() async {
+    // Проверка, что основные поля не пустые
+    if (_titleController.text.isEmpty || _authorController.text.isEmpty || _priceController.text.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Пожалуйста, заполните название, автора и цену курса.'), backgroundColor: Colors.orange),
+        );
+        return;
+    }
+
     setState(() { _isLoading = true; });
     final adminViewModel = Provider.of<AdminViewModel>(context, listen: false);
 
@@ -82,7 +92,11 @@ class _AdminAddCourseScreenState extends State<AdminAddCourseScreen> {
               onTap: _pickImage,
               child: Container(
                 height: 200,
-                decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(12)),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade300)
+                ),
                 child: _imageXFile != null
                     ? ClipRRect(
                         borderRadius: BorderRadius.circular(12),
@@ -97,7 +111,7 @@ class _AdminAddCourseScreenState extends State<AdminAddCourseScreen> {
             _buildTextField(_titleController, 'Название курса'),
             _buildTextField(_authorController, 'Автор курса'),
             _buildTextField(_descriptionController, 'Описание', maxLines: 5),
-            _buildTextField(_priceController, 'Цена (напр. 150 000 т)'),
+            _buildTextField(_priceController, 'Цена (напр. 15000 тг)'),
             _buildTextField(_originalPriceController, 'Старая цена (необязательно)'),
             const SizedBox(height: 32),
             ElevatedButton(
@@ -117,8 +131,12 @@ class _AdminAddCourseScreenState extends State<AdminAddCourseScreen> {
       child: TextField(
         controller: controller,
         maxLines: maxLines,
-        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          alignLabelWithHint: true,
+        ),
       ),
     );
   }
-}
+} 

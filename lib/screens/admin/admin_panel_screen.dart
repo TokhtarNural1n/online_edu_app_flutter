@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'admin_users_screen.dart';
 import 'admin_courses_screen.dart';
-import 'admin_news_screen.dart'; // <-- 1. Импортируем новый экран
-import 'admin_stats_screen.dart';
+import 'admin_news_screen.dart';
+import 'admin_mock_tests_screen.dart'; // <-- Новый импорт
 import 'admin_profile_screen.dart';
 
 class AdminPanelScreen extends StatefulWidget {
@@ -15,12 +15,12 @@ class AdminPanelScreen extends StatefulWidget {
 class _AdminPanelScreenState extends State<AdminPanelScreen> {
   int _selectedIndex = 0;
 
-  // 2. Добавляем новый экран в список
+  // Заменяем экран статистики на новый экран тестов
   static const List<Widget> _adminScreens = <Widget>[
     AdminUsersScreen(),
     AdminCoursesScreen(),
-    AdminNewsScreen(), // <-- Наш новый раздел
-    AdminStatsScreen(),
+    AdminNewsScreen(),
+    AdminMockTestsScreen(), // <-- НОВЫЙ ЭКРАН
     AdminProfileScreen(), 
   ];
 
@@ -37,7 +37,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         index: _selectedIndex,
         children: _adminScreens,
       ),
-      // 3. Добавляем пятую кнопку в навигацию
       bottomNavigationBar: BottomNavigationBar(
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(
@@ -49,13 +48,15 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             label: 'Курсы',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.article_outlined), // <-- Новая иконка и вкладка
+            icon: Icon(Icons.article_outlined),
             label: 'Новости',
           ),
+          // --- ИЗМЕНЕНИЕ ---
           BottomNavigationBarItem(
-            icon: Icon(Icons.bar_chart_outlined),
-            label: 'Статистика',
+            icon: Icon(Icons.quiz_outlined),
+            label: 'Проб. тесты',
           ),
+          // ------------------
           BottomNavigationBarItem(
             icon: Icon(Icons.person_pin),
             label: 'Профиль',
@@ -64,8 +65,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         type: BottomNavigationBarType.fixed,
-        selectedItemColor: Theme.of(context).primaryColor,
-        unselectedItemColor: Colors.grey,
       ),
     );
   }
