@@ -6,10 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import '../models/user_model.dart';
 import '../models/news_model.dart';
 import '../models/module_model.dart'; 
-import '../models/lesson_model.dart';
 import '../models/content_item_model.dart';
 import '../models/question_model.dart'; 
-import '../models/option_model.dart';
 import 'dart:math';
 import '../models/promo_code_model.dart';
 import '../models/enrollment_model.dart';
@@ -19,6 +17,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io';
 import '../models/mock_test_model.dart';
+import '../models/ubt_subject_model.dart';
 
 
 class AdminViewModel extends ChangeNotifier {
@@ -583,55 +582,60 @@ Future<List<MockTest>> fetchAllMockTests() async {
   }
 }
 
+
 /// Добавляет новый пробный тест и вопросы к нему
-Future<String?> addMockTest({
-  required String title,
-  required String subject,
-  required String language,
-  required int timeLimitMinutes,
-  required List<Question> questions,
-}) async {
-  if (title.isEmpty || subject.isEmpty) return 'Название и предмет не могут быть пустыми.';
-  if (questions.isEmpty) return 'Тест должен содержать хотя бы один вопрос.';
-
-  try {
-    // Создаем основной документ для теста
-    final testDocRef = _firestore.collection('mock_tests').doc();
-    await testDocRef.set({
-      'title': title,
-      'subject': subject,
-      'language': language,
-      'questionCount': questions.length,
-      'timeLimitMinutes': timeLimitMinutes,
-      'createdAt': Timestamp.now(),
-    });
-
-    // Пакетной записью добавляем все вопросы в подколлекцию
-    WriteBatch batch = _firestore.batch();
-    for (var question in questions) {
-      final questionDocRef = testDocRef.collection('questions').doc();
-      batch.set(questionDocRef, {
-        'questionText': question.questionText,
-        'imageUrl': question.imageUrl,
-        'options': question.options.map((opt) => {'text': opt.text, 'isCorrect': opt.isCorrect}).toList(),
-      });
-    }
-    await batch.commit();
-    return null;
-  } on FirebaseException catch (e) {
-    return e.message;
+ Future<String?> addMockTest({
+    required String title, required String subject, required String language,
+    required int timeLimitMinutes, required MockTestType testType,
+    List<Question>? simpleQuestions, List<UbtSubject>? ubtSubjects,
+  }) async {
+    try {
+      if (testType == MockTestType.simple) {
+        if (simpleQuestions == null || simpleQuestions.isEmpty) return 'Тест должен содержать вопросы.';
+        final testDocRef = _firestore.collection('mock_tests').doc();
+        await testDocRef.set({
+          'title': title, 'subject': subject, 'language': language,
+          'timeLimitMinutes': timeLimitMinutes, 'testType': 'simple',
+          'questionCount': simpleQuestions.length, 'createdAt': Timestamp.now(),
+        });
+        WriteBatch batch = _firestore.batch();
+        for (var q in simpleQuestions) {
+          batch.set(testDocRef.collection('questions').doc(), {'questionText': q.questionText, 'imageUrl': q.imageUrl, 'options': q.options.map((opt) => {'text': opt.text, 'isCorrect': opt.isCorrect}).toList()});
+        }
+        await batch.commit();
+      } else {
+        if (ubtSubjects == null || ubtSubjects.isEmpty) return 'ҰБТ-тест должен содержать предметы.';
+        int totalQuestions = ubtSubjects.fold(0, (sum, s) => sum + s.questions.length);
+        final testDocRef = _firestore.collection('mock_tests').doc();
+        await testDocRef.set({
+          'title': title, 'subject': 'ҰБТ', 'language': language,
+          'timeLimitMinutes': timeLimitMinutes, 'testType': 'ubt',
+          'questionCount': totalQuestions, 'createdAt': Timestamp.now(),
+        });
+        for (var sub in ubtSubjects) {
+          if (sub.questions.isEmpty) continue;
+          final subjectDocRef = testDocRef.collection('subjects').doc();
+          await subjectDocRef.set({'title': sub.title});
+          WriteBatch batch = _firestore.batch();
+          for (var q in sub.questions) {
+            batch.set(subjectDocRef.collection('questions').doc(), {'questionText': q.questionText, 'imageUrl': q.imageUrl, 'options': q.options.map((opt) => {'text': opt.text, 'isCorrect': opt.isCorrect}).toList()});
+          }
+          await batch.commit();
+        }
+      }
+      return null;
+    } on FirebaseException catch (e) { return e.message; }
   }
-}
 
 /// Удаляет пробный тест (вместе с вопросами)
-Future<String?> deleteMockTest({required String testId}) async {
-  try {
-    // В реальном приложении здесь нужна будет Cloud Function для каскадного удаления
-    // подколлекции с вопросами. Пока что мы удаляем только основной документ.
-    await _firestore.collection('mock_tests').doc(testId).delete();
-    return null;
-  } on FirebaseException catch (e) {
-    return e.message;
+  Future<String?> deleteMockTest({required String testId}) async {
+    try {
+      // В реальном приложении здесь нужна будет Cloud Function для каскадного удаления
+      // подколлекции с вопросами. Пока что мы удаляем только основной документ.
+      await _firestore.collection('mock_tests').doc(testId).delete();
+      return null;
+    } on FirebaseException catch (e) {
+      return e.message;
+    }
   }
-}
 }

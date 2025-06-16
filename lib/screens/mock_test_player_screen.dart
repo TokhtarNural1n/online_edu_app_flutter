@@ -112,6 +112,14 @@ class _MockTestPlayerScreenState extends State<MockTestPlayerScreen> {
           score++;
         }
       }
+      Provider.of<CourseViewModel>(context, listen: false).saveMockTestAttempt(
+        testId: widget.mockTest.id,
+        testTitle: widget.mockTest.title,
+        score: score,
+        totalQuestions: questions.length,
+        userAnswers: {'main': _userAnswers}, // Оборачиваем в Map с ключом 'main'
+      );
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(

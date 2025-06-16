@@ -1,12 +1,14 @@
-// lib/screens/my_tests_screen.dart
-
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/mock_test_model.dart';
+import '../models/mock_test_attempt_model.dart';
 import '../view_models/course_view_model.dart';
 import '../widgets/test_card.dart';
 import 'mock_test_player_screen.dart';
-import 'test_history_screen.dart';
+import 'ubt_welcome_screen.dart';
+import 'ubt_result_detail_screen.dart';
+import 'mock_detailed_results_screen.dart';
 
 class MyTestsScreen extends StatefulWidget {
   const MyTestsScreen({super.key});
@@ -24,40 +26,80 @@ class _MyTestsScreenState extends State<MyTestsScreen> {
     _loadAllData();
   }
 
+  // --- ВОТ НЕДОСТАЮЩИЕ МЕТОДЫ ---
+
   // Загружает все необходимые данные
   void _loadAllData() {
     final courseViewModel = Provider.of<CourseViewModel>(context, listen: false);
-    _dataFuture = Future.wait([
-      courseViewModel.fetchMockTests(),
-      courseViewModel.fetchAttemptedMockTestIds(),
-    ]).then((responses) => {
-      'allTests': responses[0],
-      'attemptedIds': responses[1],
+    // Оборачиваем в setState, чтобы FutureBuilder перестроился при обновлении
+    setState(() {
+      _dataFuture = Future.wait([
+        courseViewModel.fetchMockTests(),
+        courseViewModel.fetchAllMockTestAttempts(),
+      ]).then((responses) => {
+        'allTests': responses[0] as List<MockTest>,
+        'allAttempts': responses[1] as List<MockTestAttempt>,
+      });
     });
   }
 
-  // Обрабатывает нажатие на карточку теста
-  void _handleTestTap(MockTest test, bool isCompleted) async {
-    if (isCompleted) {
-      // Если тест пройден, показываем историю
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => TestHistoryScreen(test: test),
-        ),
-      );
+  // Метод для обновления "потянув вниз"
+  Future<void> _refresh() async {
+    _loadAllData();
+    // Ждем завершения нового Future, чтобы индикатор обновления исчез
+    await _dataFuture;
+  }
+
+  // Обрабатывает нажатие на карточку из общего списка тестов
+  void _handleTestTap(MockTest test) async {
+    if (test.testType == MockTestType.ubt) {
+      await Navigator.push(context, MaterialPageRoute(
+        builder: (context) => UbtWelcomeScreen(ubtTest: test),
+      ));
     } else {
-      // Если тест новый, запускаем его прохождение
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => MockTestPlayerScreen(mockTest: test),
-        ),
-      );
-      // После возвращения с экрана теста, обновляем список
-      setState(() {
-        _loadAllData();
-      });
+      await Navigator.push(context, MaterialPageRoute(
+        builder: (context) => MockTestPlayerScreen(mockTest: test),
+      ));
+    }
+    _refresh(); // Обновляем данные после прохождения теста
+  }
+
+  // Обработчик нажатия на результат из списка "Нәтижелер"
+  void _handleResultTap(MockTestAttempt attempt, List<MockTest> allTests) async {
+    final courseViewModel = Provider.of<CourseViewModel>(context, listen: false);
+    
+    // Находим полную информацию о тесте, к которому относится эта попытка
+    final testInfo = allTests.firstWhere((t) => t.id == attempt.testId, orElse: () => allTests.first);
+    
+    showDialog(context: context, builder: (context) => const Center(child: CircularProgressIndicator()), barrierDismissible: false);
+    
+    try {
+      if (testInfo.testType == MockTestType.ubt) {
+        final subjectsWithQuestions = await courseViewModel.fetchUbtTestWithQuestions(attempt.testId);
+        if (!mounted) return;
+        Navigator.of(context).pop();
+
+        Navigator.push(context, MaterialPageRoute(
+          builder: (_) => UbtResultDetailScreen(
+            attempt: attempt,
+            subjects: subjectsWithQuestions,
+          ),
+        ));
+      } else {
+        final questions = await courseViewModel.fetchQuestionsForMockTest(attempt.testId);
+        if (!mounted) return;
+        Navigator.of(context).pop();
+
+        Navigator.push(context, MaterialPageRoute(
+          builder: (_) => MockDetailedResultsScreen(
+            questions: questions,
+            userAnswers: (attempt.userAnswers['main'] as Map<dynamic, dynamic>).map((key, value) => MapEntry(int.parse(key), value as int)),
+          ),
+        ));
+      }
+    } catch(e) {
+      if (mounted) Navigator.of(context).pop();
+      print("Ошибка при открытии результатов: $e");
     }
   }
 
@@ -67,79 +109,104 @@ class _MyTestsScreenState extends State<MyTestsScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Пробные тесты'),
-          bottom: TabBar(
-            tabs: const [
-              Tab(text: 'Новые'),
-              Tab(text: 'Завершенные'),
-            ],
-            labelColor: Theme.of(context).primaryColor,
-            unselectedLabelColor: Colors.grey,
-            indicatorColor: Theme.of(context).primaryColor,
-          ),
+          title: const Text('Тест'),
+          actions: [IconButton(onPressed: (){}, icon: const Icon(Icons.search))],
+          bottom: const TabBar(tabs: [
+            Tab(text: 'Тест'),
+            Tab(text: 'Нәтижелер'),
+          ]),
         ),
-        body: FutureBuilder<Map<String, dynamic>>(
-          future: _dataFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasError) {
-              return Center(child: Text('Произошла ошибка: ${snapshot.error}'));
-            }
-            if (!snapshot.hasData) {
-              return const Center(child: Text('Тестов пока нет.'));
-            }
+        body: RefreshIndicator(
+          onRefresh: _refresh,
+          child: FutureBuilder<Map<String, dynamic>>(
+            future: _dataFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) return Center(child: Text('Произошла ошибка: ${snapshot.error}'));
+              if (!snapshot.hasData) return const Center(child: Text('Нет данных.'));
 
-            final allTests = snapshot.data!['allTests'] as List<MockTest>;
-            final attemptedTestIds = snapshot.data!['attemptedIds'] as Set<String>;
-
-            final newTests = allTests.where((test) => !attemptedTestIds.contains(test.id)).toList();
-            final completedTests = allTests.where((test) => attemptedTestIds.contains(test.id)).toList();
-
-            return TabBarView(
-              children: [
-                _buildTestsList(
-                  tests: newTests,
-                  attemptedIds: attemptedTestIds,
-                  emptyMessage: 'Новых тестов нет. Вы молодец!',
-                ),
-                _buildTestsList(
-                  tests: completedTests,
-                  attemptedIds: attemptedTestIds,
-                  emptyMessage: 'Вы еще не завершили ни одного теста.',
-                ),
-              ],
-            );
-          },
+              final allTests = snapshot.data!['allTests'] as List<MockTest>;
+              final allAttempts = snapshot.data!['allAttempts'] as List<MockTestAttempt>;
+              
+              return TabBarView(
+                children: [
+                  _buildAllTestsList(allTests),
+                  _buildResultsList(allAttempts, allTests),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
   }
 
-  // --- ВОТ НЕДОСТАЮЩИЙ МЕТОД ---
-  Widget _buildTestsList({
-    required List<MockTest> tests,
-    required Set<String> attemptedIds,
-    String? emptyMessage,
-  }) {
+  Widget _buildAllTestsList(List<MockTest> tests) {
     if (tests.isEmpty) {
-      return Center(child: Text(emptyMessage ?? 'Нет тестов в этой категории.'));
+      return LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: const Center(child: Text('Пробных тестов пока нет.')),
+          ),
+        ),
+      );
     }
+    
     return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16.0),
       itemCount: tests.length,
       itemBuilder: (context, index) {
         final test = tests[index];
-        final bool isCompleted = attemptedIds.contains(test.id);
         return TestCard(
           title: test.title,
           subject: test.subject,
           language: test.language,
           questionCount: test.questionCount,
           studentCount: 0, 
-          isPassed: isCompleted,
-          onTap: () => _handleTestTap(test, isCompleted),
+          isPassed: false,
+          onTap: () => _handleTestTap(test),
+        );
+      },
+    );
+  }
+
+  Widget _buildResultsList(List<MockTestAttempt> attempts, List<MockTest> allTests) {
+    if (attempts.isEmpty) {
+      return LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: const Center(child: Text('Вы еще не завершили ни одного теста.')),
+          ),
+        ),
+      );
+    }
+    return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16.0),
+      itemCount: attempts.length,
+      itemBuilder: (context, index) {
+        final attempt = attempts[index];
+        final formattedDate = DateFormat('dd.MM.yyyy • HH:mm').format(attempt.completedAt.toDate());
+        final score = '${attempt.score}/${attempt.totalQuestions}';
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: ListTile(
+            title: Text(attempt.testTitle, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text(formattedDate),
+            trailing: Chip(
+              label: Text(score, style: const TextStyle(fontWeight: FontWeight.bold)),
+              backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+            ),
+            onTap: () => _handleResultTap(attempt, allTests),
+          ),
         );
       },
     );

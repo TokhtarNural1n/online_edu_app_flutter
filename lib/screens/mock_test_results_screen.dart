@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'dart:math';
 
 import '../models/mock_test_model.dart';
-import '../models/question_model.dart';
-import '../view_models/course_view_model.dart';
+import '../models/question_model.dart'; 
 import 'mock_detailed_results_screen.dart';
 import 'mock_test_player_screen.dart';
 
-class MockTestResultsScreen extends StatefulWidget {
+// --- ИЗМЕНЕНИЕ: Возвращаем виджет к простому StatelessWidget ---
+class MockTestResultsScreen extends StatelessWidget {
   final MockTest mockTest;
   final int score;
   final int totalQuestions;
@@ -24,31 +23,11 @@ class MockTestResultsScreen extends StatefulWidget {
     required this.userAnswers,
   });
 
-  @override
-  State<MockTestResultsScreen> createState() => _MockTestResultsScreenState();
-}
-
-class _MockTestResultsScreenState extends State<MockTestResultsScreen> {
-  @override
-  void initState() {
-    super.initState();
-    // Сразу после открытия экрана сохраняем результат
-    _saveAttempt();
-  }
-
-  void _saveAttempt() {
-  Provider.of<CourseViewModel>(context, listen: false).saveMockTestAttempt(
-    testId: widget.mockTest.id,
-    testTitle: widget.mockTest.title,
-    score: widget.score,
-    totalQuestions: widget.totalQuestions,
-    userAnswers: widget.userAnswers, // <-- ПЕРЕДАЕМ ОТВЕТЫ
-  );
-}
+  // --- МЕТОДЫ initState() и _saveAttempt() ПОЛНОСТЬЮ УДАЛЕНЫ ---
 
   @override
   Widget build(BuildContext context) {
-    final double percentage = widget.totalQuestions > 0 ? (widget.score / widget.totalQuestions) * 100 : 0;
+    final double percentage = totalQuestions > 0 ? (score / totalQuestions) * 100 : 0;
     final Color progressColor = percentage >= 50 ? Colors.green : Colors.orange;
 
     return Scaffold(
@@ -68,7 +47,7 @@ class _MockTestResultsScreenState extends State<MockTestResultsScreen> {
                   painter: ResultGaugePainter(percentage: percentage, color: progressColor),
                   child: Center(
                     child: Text(
-                      '${widget.score} из ${widget.totalQuestions}',
+                      '$score из $totalQuestions',
                       style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -79,7 +58,7 @@ class _MockTestResultsScreenState extends State<MockTestResultsScreen> {
                 onPressed: () {
                   Navigator.push(context, MaterialPageRoute(
                     builder: (context) => MockDetailedResultsScreen(
-                      questions: widget.questions, userAnswers: widget.userAnswers,
+                      questions: questions, userAnswers: userAnswers,
                     ),
                   ));
                 },
@@ -90,7 +69,7 @@ class _MockTestResultsScreenState extends State<MockTestResultsScreen> {
               OutlinedButton(
                 onPressed: () {
                   Navigator.pushReplacement(context, MaterialPageRoute(
-                    builder: (context) => MockTestPlayerScreen(mockTest: widget.mockTest),
+                    builder: (context) => MockTestPlayerScreen(mockTest: mockTest),
                   ));
                 },
                 style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
@@ -111,7 +90,7 @@ class _MockTestResultsScreenState extends State<MockTestResultsScreen> {
   }
 }
 
-// --- Кастомный виджет для рисования индикатора ---
+// Класс для рисования индикатора остается без изменений
 class ResultGaugePainter extends CustomPainter {
   final double percentage;
   final Color color;

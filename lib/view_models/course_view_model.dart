@@ -6,9 +6,9 @@ import '../models/module_model.dart';
 import '../models/content_item_model.dart';
 import '../models/question_model.dart';
 import '../models/my_course_progress_info.dart';
-import '../models/content_item_model.dart';
 import '../models/mock_test_model.dart';
 import '../models/mock_test_attempt_model.dart';
+import '../models/ubt_subject_model.dart';
 
 
 
@@ -148,30 +148,16 @@ Future<List<MockTest>> fetchMockTests() async {
     return [];
   }
 }
-  Future<void> saveMockTestAttempt({
-    required String testId,
-    required String testTitle,
-    required int score,
-    required int totalQuestions,
-    required Map<int, int> userAnswers, // <-- НОВЫЙ ПАРАМЕТР
-  }) async {
+  Future<void> saveMockTestAttempt({ required String testId, required String testTitle, required int score, required int totalQuestions, required Map<String, Map<int, int>> userAnswers, }) async {
     final userId = _auth.currentUser?.uid;
     if (userId == null) return;
-
-    // Конвертируем ключи Map в String, так как Firestore этого требует
-    final answersToSave = userAnswers.map((key, value) => MapEntry(key.toString(), value));
-
+    final answersToSave = userAnswers.map((subjectId, answers) => MapEntry(subjectId, answers.map((key, value) => MapEntry(key.toString(), value))));
     try {
-      await _firestore
-          .collection('users').doc(userId).collection('mock_test_attempts').add({
-            'testId': testId,
-            'testTitle': testTitle,
-            'score': score,
-            'totalQuestions': totalQuestions,
-            'completedAt': Timestamp.now(),
-            'userAnswers': answersToSave, // <-- СОХРАНЯЕМ ОТВЕТЫ
-          });
-    } catch (e) { /* ... */ }
+      await _firestore.collection('users').doc(userId).collection('mock_test_attempts').add({
+        'testId': testId, 'testTitle': testTitle, 'score': score, 'totalQuestions': totalQuestions,
+        'completedAt': Timestamp.now(), 'userAnswers': answersToSave,
+      });
+    } catch (e) { print("Ошибка при сохранении попытки теста: $e"); }
   }
   Future<Set<String>> fetchAttemptedMockTestIds() async {
     final userId = _auth.currentUser?.uid;
@@ -323,6 +309,58 @@ Future<List<MockTest>> fetchMockTests() async {
       return {};
     }
   }
+  Future<List<UbtSubject>> fetchSubjectsForUbtTest(String testId) async {
+    try {
+      final subjectsSnapshot = await _firestore
+          .collection('mock_tests')
+          .doc(testId)
+          .collection('subjects')
+          .get();
+      
+      // Преобразуем документы в объекты UbtSubject
+      return subjectsSnapshot.docs.map((doc) => UbtSubject(
+        id: doc.id,
+        title: doc.data()['title'] ?? '',
+        // Пока не загружаем сами вопросы
+        questions: [], 
+      )).toList();
+    } catch (e) {
+      print("Ошибка при загрузке предметов ҰБТ-теста: $e");
+      return [];
+    }
+  }  
+  Future<List<UbtSubject>> fetchUbtTestWithQuestions(String testId) async {
+    try {
+      final subjectsSnapshot = await _firestore.collection('mock_tests').doc(testId).collection('subjects').get();
+      if (subjectsSnapshot.docs.isEmpty) return [];
+      List<UbtSubject> subjectsWithQuestions = [];
+      await Future.forEach(subjectsSnapshot.docs, (subjectDoc) async {
+        final questionsSnapshot = await subjectDoc.reference.collection('questions').get();
+        final questions = questionsSnapshot.docs.map((qDoc) => Question.fromFirestore(qDoc)).toList();
+        subjectsWithQuestions.add(UbtSubject(id: subjectDoc.id, title: subjectDoc.data()['title'] ?? '', questions: questions));
+      });
+      return subjectsWithQuestions;
+    } catch (e) { print("Ошибка при загрузке ҰБТ-теста с вопросами: $e"); return []; }
+  }
+    /// ВОТ НЕДОСТАЮЩИЙ МЕТОД
+  Future<List<MockTestAttempt>> fetchAllMockTestAttempts() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return [];
+    try {
+      final snapshot = await _firestore.collection('users').doc(userId).collection('mock_test_attempts').orderBy('completedAt', descending: true).get();
+      return snapshot.docs.map((doc) => MockTestAttempt.fromFirestore(doc)).toList();
+    } catch (e) { print("Ошибка при загрузке всех попыток: $e"); return []; }
+  }
+  
+
+  Future<MockTest?> fetchMockTestById(String testId) async {
+    try {
+      final doc = await _firestore.collection('mock_tests').doc(testId).get();
+      return doc.exists ? MockTest.fromFirestore(doc) : null;
+    } catch (e) { return null; }
+  }
+
+
   Future<List<MyCourseProgressInfo>> fetchMyCoursesWithProgress() async {
     final myCourses = await fetchMyCourses();
     if (myCourses.isEmpty) return [];
