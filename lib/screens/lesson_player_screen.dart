@@ -6,7 +6,6 @@ import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../models/lesson_model.dart';
 import '../view_models/course_view_model.dart';
 
-
 class LessonPlayerScreen extends StatefulWidget {
   final Lesson lesson;
   final String courseId; 
