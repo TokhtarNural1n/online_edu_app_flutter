@@ -9,7 +9,8 @@ import '../models/my_course_progress_info.dart';
 import '../models/mock_test_model.dart';
 import '../models/mock_test_attempt_model.dart';
 import '../models/ubt_subject_model.dart';
-
+import '../models/continue_learning_info.dart';
+import '../models/subject_model.dart';
 
 
 
@@ -29,6 +30,7 @@ class CourseViewModel extends ChangeNotifier {
       return [];
     }
   }
+
 
   // --- НОВЫЙ И САМЫЙ ВАЖНЫЙ МЕТОД ---
   // Загружает один курс со всеми его вложенными модулями и уроками
@@ -360,59 +362,179 @@ Future<List<MockTest>> fetchMockTests() async {
     } catch (e) { return null; }
   }
 
+  Future<Map<String, dynamic>> getHomeScreenHeaderData() async {
+  final user = _auth.currentUser;
+  if (user == null) {
+    // Возвращаем данные по умолчанию, если пользователь не вошел
+    return {'userName': 'Қонақ', 'averageProgress': 0.0};
+  }
 
-  Future<List<MyCourseProgressInfo>> fetchMyCoursesWithProgress() async {
-    final myCourses = await fetchMyCourses();
-    if (myCourses.isEmpty) return [];
+  // Загружаем имя пользователя
+  final userDoc = await _firestore.collection('users').doc(user.uid).get();
+  final userName = userDoc.data()?['name'] ?? 'Студент';
 
-    List<MyCourseProgressInfo> progressInfoList = [];
+  // Используем уже существующий метод для получения прогресса по курсам
+  final coursesWithProgress = await fetchMyCoursesWithProgress();
 
-    for (final course in myCourses) {
-      final results = await Future.wait([
-        fetchCourseDetails(course.id),
-        fetchCompletedContentIds(course.id),
-      ]);
+  if (coursesWithProgress.isEmpty) {
+    return {'userName': userName, 'averageProgress': 0.0};
+  }
 
-      final detailedCourse = results[0] as Course;
-      final completedIds = results[1] as Set<String>;
+  // Считаем средний процент прогресса
+  double totalProgress = 0;
+  for (final courseProgress in coursesWithProgress) {
+    totalProgress += courseProgress.progressPercent;
+  }
+  final averageProgress = totalProgress / coursesWithProgress.length;
 
-      final allContentItems = detailedCourse.modules
-          .expand((module) => module.contentItems)
-          .toList();
+  return {
+    'userName': userName,
+    'averageProgress': averageProgress,
+  };
+}
+  Future<ContinueLearningInfo?> getContinueLearningItem() async {
+  // 1. Получаем все курсы с прогрессом
+  final coursesWithProgress = await fetchMyCoursesWithProgress();
+  if (coursesWithProgress.isEmpty) return null;
 
-      // --- ИЗМЕНЕНИЕ: Создаем список только отслеживаемых элементов (лекции и тесты) ---
-      final trackableItems = allContentItems
-          .where((item) => item.type == ContentType.lesson || item.type == ContentType.test)
-          .toList();
+  // 2. Ищем первый курс, который еще не пройден до конца
+  for (final courseProgress in coursesWithProgress) {
+    // Если у курса есть следующий урок (т.е. он не пройден)
+    if (courseProgress.nextContentItem != null) {
+      final detailedCourse = courseProgress.course;
+      final nextItem = courseProgress.nextContentItem!;
 
-      double progressPercent = 0.0;
-      if (trackableItems.isNotEmpty) {
-        // Считаем пройденные только среди отслеживаемых
-        final completedTrackableItems = trackableItems
-            .where((item) => completedIds.contains(item.id))
-            .length;
-        progressPercent = (completedTrackableItems / trackableItems.length) * 100;
-      }
-
-      // Находим следующий урок для прохождения среди отслеживаемых
-      ContentItem? nextItem;
-      int nextItemAbsoluteIndex = 0;
-      for (int i = 0; i < trackableItems.length; i++) {
-        if (!completedIds.contains(trackableItems[i].id)) {
-          nextItem = trackableItems[i];
-          nextItemAbsoluteIndex = i + 1; // Порядковый номер среди лекций/тестов
-          break;
+      // 3. Находим, в каком модуле находится этот урок
+      for (final module in detailedCourse.modules) {
+        if (module.contentItems.any((item) => item.id == nextItem.id)) {
+          // 4. Как только нашли - возвращаем всю необходимую информацию
+          return ContinueLearningInfo(
+            course: detailedCourse,
+            module: module,
+            contentItem: nextItem,
+          );
         }
       }
-
-      progressInfoList.add(MyCourseProgressInfo(
-        course: detailedCourse,
-        progressPercent: progressPercent,
-        lessonNumberToContinue: nextItemAbsoluteIndex > 0 ? nextItemAbsoluteIndex : trackableItems.length,
-        nextContentItem: nextItem,
-      ));
     }
+  }
 
-    return progressInfoList;
+  // Если все курсы пройдены, возвращаем null
+  return null;
+}
+Future<List<Course>> fetchPopularCourses({int limit = 3}) async {
+  try {
+    final snapshot = await _firestore
+        .collection('courses')
+        .orderBy('createdAt', descending: true) // В будущем можно сортировать по полю 'popularity'
+        .limit(limit)
+        .get();
+    return snapshot.docs.map((doc) => Course.fromFirestore(doc, [])).toList();
+  } catch (e) {
+    print("Ошибка при загрузке популярных курсов: $e");
+    return [];
+  }
+}
+  Future<List<Subject>> fetchSubjects() async {
+  try {
+    // Импортируйте вашу новую модель вверху файла
+    // import '../models/subject_model.dart';
+    
+    final snapshot = await _firestore.collection('subjects').get();
+    return snapshot.docs.map((doc) => Subject.fromFirestore(doc)).toList();
+  } catch (e) {
+    print("Ошибка при загрузке предметов: $e");
+    return [];
+  }
+}
+  Future<List<Course>> fetchCoursesBySubject(String subjectName) async {
+    try {
+      final snapshot = await _firestore
+          .collection('courses')
+          // Ищем все курсы, где поле 'category' совпадает с именем предмета
+          .where('category', isEqualTo: subjectName)
+          .get();
+          
+      // Возвращаем список курсов, пока без детальной информации о модулях
+      return snapshot.docs.map((doc) => Course.fromFirestore(doc, [])).toList();
+    } catch (e) {
+      print("Ошибка при загрузке курсов по предмету: $e");
+      return [];
+    }
+  }
+
+
+  Future<List<MyCourseProgressInfo>> fetchMyCoursesWithProgress() async {
+  // 1. Сначала получаем список ID курсов, на которые записан пользователь
+  final myCourses = await fetchMyCourses();
+  if (myCourses.isEmpty) return [];
+
+  // 2. Создаем список асинхронных задач (Future) для каждого курса
+  final List<Future<MyCourseProgressInfo>> futures = myCourses
+      .map((course) => _getSingleCourseProgressInfo(course.id))
+      .toList();
+
+  // 3. Запускаем все задачи одновременно и ждем их завершения
+  final List<MyCourseProgressInfo> progressInfoList = await Future.wait(futures);
+
+  // Сортируем курсы по названию, чтобы порядок был стабильным
+  progressInfoList.sort((a, b) => a.course.title.compareTo(b.course.title));
+  
+  return progressInfoList;
+}
+
+// --- НОВЫЙ ВСПОМОГАТЕЛЬНЫЙ МЕТОД ---
+// Он содержит логику, которая раньше была внутри цикла
+Future<MyCourseProgressInfo> _getSingleCourseProgressInfo(String courseId) async {
+  // Запускаем два запроса параллельно для одного курса
+  final results = await Future.wait([
+    fetchCourseDetails(courseId),
+    fetchCompletedContentIds(courseId),
+  ]);
+
+  final detailedCourse = results[0] as Course;
+  final completedIds = results[1] as Set<String>;
+
+  final trackableItems = detailedCourse.modules
+      .expand((module) => module.contentItems)
+      .where((item) => item.type == ContentType.lesson || item.type == ContentType.test)
+      .toList();
+
+  double progressPercent = 0.0;
+  if (trackableItems.isNotEmpty) {
+    final completedTrackableItems = trackableItems
+        .where((item) => completedIds.contains(item.id))
+        .length;
+    progressPercent = (completedTrackableItems / trackableItems.length) * 100;
+  }
+
+  ContentItem? nextItem;
+  int nextItemAbsoluteIndex = 0;
+  for (int i = 0; i < trackableItems.length; i++) {
+    if (!completedIds.contains(trackableItems[i].id)) {
+      nextItem = trackableItems[i];
+      nextItemAbsoluteIndex = i + 1;
+      break;
+    }
+  }
+
+  return MyCourseProgressInfo(
+    course: detailedCourse,
+    progressPercent: progressPercent,
+    lessonNumberToContinue: nextItemAbsoluteIndex > 0 ? nextItemAbsoluteIndex : trackableItems.length,
+    nextContentItem: nextItem,
+  );
+}
+  Future<bool> isEnrolledInCourse(String courseId) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return false;
+
+    final enrollmentDoc = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('enrolled_courses')
+        .doc(courseId)
+        .get();
+
+    return enrollmentDoc.exists;
   }
 } 

@@ -18,6 +18,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io';
 import '../models/mock_test_model.dart';
 import '../models/ubt_subject_model.dart';
+import 'package:image/image.dart' as img;
+import '../models/subject_model.dart';
+
 
 
 class AdminViewModel extends ChangeNotifier {
@@ -166,24 +169,23 @@ class AdminViewModel extends ChangeNotifier {
     }
   }
 
-  Future<String?> addNewsArticle({ required String title, required String content, XFile? imageXFile }) async {
+  Future<String?> addNewsArticle({
+    required String title,
+    required String content,
+    required String imageUrl,
+    required String thumbnailUrl,
+  }) async {
     if (title.isEmpty || content.isEmpty) return 'Заголовок и содержание не могут быть пустыми.';
     try {
-      String imageUrl = '';
-      if (imageXFile != null) {
-        String fileName = DateTime.now().millisecondsSinceEpoch.toString();
-        Reference ref = _storage.ref().child('news_images').child(fileName);
-        Uint8List fileBytes = await imageXFile.readAsBytes();
-        TaskSnapshot snapshot = await ref.putData(fileBytes);
-        imageUrl = await snapshot.ref.getDownloadURL();
-      }
       await _firestore.collection('news').add({
         'title': title,
         'content': content,
         'imageUrl': imageUrl,
+        'thumbnailUrl': thumbnailUrl,
         'createdAt': Timestamp.now(),
-        'category': 'Общее',
+        'category': 'Жаңалықтар', // или любая другая категория по умолчанию
         'viewCount': 0,
+        'commentCount': 0, // Инициализируем счетчик комментариев
       });
       return null;
     } on FirebaseException catch (e) {
@@ -191,65 +193,64 @@ class AdminViewModel extends ChangeNotifier {
     }
   }
 
-  // --- ИСПРАВЛЕННЫЕ МЕТОДЫ РЕДАКТИРОВАНИЯ И УДАЛЕНИЯ ---
-
-  // Метод для обновления новости
+  /// Обновляет новость, включая возможность смены изображения.
   Future<String?> updateNewsArticle({
     required String newsId,
     required String title,
     required String content,
-    XFile? newImageFile,
+    String? newImageUrl, // Ссылки передаются уже готовыми
+    String? newThumbnailUrl,
     String? oldImageUrl,
   }) async {
     if (title.isEmpty || content.isEmpty) return 'Поля не могут быть пустыми.';
     try {
-      String imageUrl = oldImageUrl ?? '';
-
-      // Если было выбрано новое изображение, загружаем его и удаляем старое
-      if (newImageFile != null) {
-        // Удаляем старое фото, если оно было
-        if (oldImageUrl != null && oldImageUrl.isNotEmpty) {
-          await deleteNewsImage(oldImageUrl);
-        }
-        // Загружаем новое
-        String fileName = DateTime.now().millisecondsSinceEpoch.toString();
-        Reference ref = _storage.ref().child('news_images').child(fileName);
-        Uint8List fileBytes = await newImageFile.readAsBytes();
-        TaskSnapshot snapshot = await ref.putData(fileBytes);
-        imageUrl = await snapshot.ref.getDownloadURL();
-      }
-
-      await _firestore.collection('news').doc(newsId).update({
+      final Map<String, dynamic> updateData = {
         'title': title,
         'content': content,
-        'imageUrl': imageUrl,
-      });
-      return null; // Успех
+      };
+
+      // Если были переданы новые ссылки, добавляем их в данные для обновления
+      if (newImageUrl != null && newThumbnailUrl != null) {
+        updateData['imageUrl'] = newImageUrl;
+        updateData['thumbnailUrl'] = newThumbnailUrl;
+
+        // Удаляем старые фото, если они были
+        if (oldImageUrl != null && oldImageUrl.isNotEmpty) {
+          // Пытаемся удалить и оригинал, и thumbnail
+          await deleteNewsImage(oldImageUrl);
+          final oldThumbUrl = oldImageUrl.replaceFirst('/original/', '/thumb/');
+          await deleteNewsImage(oldThumbUrl);
+        }
+      }
+
+      await _firestore.collection('news').doc(newsId).update(updateData);
+      return null;
     } on FirebaseException catch (e) {
       return e.message;
     }
   }
 
-  // Вспомогательный метод для удаления изображения из Storage
+  /// Вспомогательный метод для удаления одного изображения из Storage.
   Future<void> deleteNewsImage(String imageUrl) async {
-    // Не пытаемся удалять заглушки или пустые ссылки
-    if (imageUrl.isEmpty || imageUrl.contains('placehold.co')) return;
+    if (imageUrl.isEmpty) return;
     try {
       await _storage.refFromURL(imageUrl).delete();
     } catch (e) {
-      // Игнорируем ошибку, если файл не найден (возможно, уже удален)
       print("Ошибка при удалении старого фото (можно игнорировать): $e");
     }
   }
 
-  // Метод для удаления всей новости (документ + фото)
+  /// Удаляет всю новость (документ + оба изображения).
   Future<String?> deleteNewsArticle({required String newsId, required String imageUrl}) async {
     try {
-      // Сначала удаляем фото из Storage (если оно есть)
+      // Удаляем и оригинал, и thumbnail
       await deleteNewsImage(imageUrl);
+      final thumbUrl = imageUrl.replaceFirst('/original/', '/thumb/');
+      await deleteNewsImage(thumbUrl);
+      
       // Затем удаляем документ из Firestore
       await _firestore.collection('news').doc(newsId).delete();
-      return null; // Успех
+      return null;
     } on FirebaseException catch (e) {
       return e.message;
     }
@@ -257,39 +258,24 @@ class AdminViewModel extends ChangeNotifier {
   Future<String?> addCourse({
     required String title,
     required String author,
+    required String category,
     required String description,
     required String price,
     required String originalPrice,
-    XFile? imageXFile,
+    required bool areLessonsSequential,
+    String? imageUrl,
+    String? thumbnailUrl,
   }) async {
-    if (title.isEmpty || author.isEmpty || description.isEmpty || price.isEmpty) {
-      return 'Все поля, кроме старой цены, обязательны.';
-    }
-    
     try {
-      String imageUrl = 'https://placehold.co/600x400/7B1FA2/FFFFFF?text=Course';
-      if (imageXFile != null) {
-        String fileName = 'course_${DateTime.now().millisecondsSinceEpoch.toString()}';
-        Reference ref = _storage.ref().child('course_images').child(fileName);
-        Uint8List fileBytes = await imageXFile.readAsBytes();
-        TaskSnapshot snapshot = await ref.putData(fileBytes);
-        imageUrl = await snapshot.ref.getDownloadURL();
-      }
-
       await _firestore.collection('courses').add({
-        'title': title,
-        'author': author,
-        'description': description,
-        'price': price,
-        'originalPrice': originalPrice,
-        'imageUrl': imageUrl,
-        'createdAt': Timestamp.now(),
+        'title': title, 'author': author, 'category': category,
+        'description': description, 'price': price, 'originalPrice': originalPrice,
+        'imageUrl': imageUrl ?? '', 'thumbnailUrl': thumbnailUrl ?? '',
+        'areLessonsSequential': areLessonsSequential,
+        'createdAt': Timestamp.now(), 'reviewCount': 0, 'rating': 0.0,
       });
-      
       return null;
-    } on FirebaseException catch (e) {
-      return e.message;
-    }
+    } on FirebaseException catch (e) { return e.message; }
   }
 
   // Метод для обновления курса
@@ -297,41 +283,36 @@ class AdminViewModel extends ChangeNotifier {
     required String courseId,
     required String title,
     required String author,
+    required String category,
     required String description,
     required String price,
     required String originalPrice,
-    XFile? newImageFile,
+    required bool areLessonsSequential,
+    String? newImageUrl,
+    String? newThumbnailUrl,
     String? oldImageUrl,
   }) async {
-    if (title.isEmpty || author.isEmpty || description.isEmpty || price.isEmpty) {
-      return 'Все поля, кроме старой цены, обязательны.';
-    }
     try {
-      String imageUrl = oldImageUrl ?? '';
-      if (newImageFile != null) {
-        if (oldImageUrl != null && oldImageUrl.isNotEmpty && !oldImageUrl.contains('placehold.co')) {
-          await _storage.refFromURL(oldImageUrl).delete();
-        }
-        String fileName = 'course_${DateTime.now().millisecondsSinceEpoch.toString()}';
-        Reference ref = _storage.ref().child('course_images').child(fileName);
-        Uint8List fileBytes = await newImageFile.readAsBytes();
-        TaskSnapshot snapshot = await ref.putData(fileBytes);
-        imageUrl = await snapshot.ref.getDownloadURL();
-      }
+      final Map<String, dynamic> updateData = {
+        'title': title, 'author': author, 'category': category,
+        'description': description, 'price': price, 'originalPrice': originalPrice,
+        'areLessonsSequential': areLessonsSequential,
+      };
 
-      await _firestore.collection('courses').doc(courseId).update({
-        'title': title,
-        'author': author,
-        'description': description,
-        'price': price,
-        'originalPrice': originalPrice,
-        'imageUrl': imageUrl,
-      });
+      if (newImageUrl != null && newThumbnailUrl != null) {
+        updateData['imageUrl'] = newImageUrl;
+        updateData['thumbnailUrl'] = newThumbnailUrl;
+        if (oldImageUrl != null && oldImageUrl.isNotEmpty) {
+          final oldThumbUrl = oldImageUrl.replaceFirst('/original/', '/thumb/');
+          try { await _storage.refFromURL(oldImageUrl).delete(); } catch (e) {}
+          try { await _storage.refFromURL(oldThumbUrl).delete(); } catch (e) {}
+        }
+      }
+      await _firestore.collection('courses').doc(courseId).update(updateData);
       return null;
-    } on FirebaseException catch (e) {
-      return e.message;
-    }
+    } on FirebaseException catch (e) { return e.message; }
   }
+
 
   // Метод для удаления курса
   Future<String?> deleteCourse({required String courseId, required String imageUrl}) async {
@@ -430,7 +411,6 @@ class AdminViewModel extends ChangeNotifier {
       return [];
     }
   }
-
   Future<String?> addVideoLesson({
     required String courseId,
     required String moduleId,
@@ -438,26 +418,174 @@ class AdminViewModel extends ChangeNotifier {
     required String duration,
     required String videoUrl,
     required String content,
+    required bool isStopLesson,
   }) async {
     try {
-      await _firestore.collection('courses').doc(courseId).collection('modules').doc(moduleId).collection('contentItems').add({
+      // Получаем текущее количество элементов, чтобы задать порядок
+      final contentCollection = _firestore.collection('courses').doc(courseId).collection('modules').doc(moduleId).collection('contentItems');
+      final currentCount = (await contentCollection.count().get()).count;
+
+      await contentCollection.add({
             'type': 'lesson',
             'title': title,
             'duration': duration,
             'videoUrl': videoUrl,
             'content': content,
+            'isStopLesson': isStopLesson,
             'createdAt': Timestamp.now(),
+            'orderIndex': currentCount, // <-- Присваиваем порядковый номер
           });
       return null;
     } on FirebaseException catch (e) { return e.message; }
   }
 
+  // --- МЕТОД ДЛЯ ОБНОВЛЕНИЯ УРОКА (КОТОРЫЙ ВЫЗЫВАЕТСЯ) ---
+  Future<String?> updateVideoLesson({
+    required String courseId,
+    required String moduleId,
+    required String contentId,
+    required String title,
+    required String duration,
+    required String videoUrl,
+    required String content,
+    required bool isStopLesson,
+  }) async {
+    try {
+      await _firestore
+          .collection('courses').doc(courseId)
+          .collection('modules').doc(moduleId)
+          .collection('contentItems').doc(contentId)
+          .update({
+            'title': title,
+            'duration': duration,
+            'videoUrl': videoUrl,
+            'content': content,
+            'isStopLesson': isStopLesson,
+          });
+      return null;
+    } on FirebaseException catch (e) {
+      return e.message;
+    }
+  }
+  Future<List<Question>> fetchTestQuestions({
+  required String courseId,
+  required String moduleId,
+  required String testId,
+}) async {
+  try {
+    final snapshot = await _firestore
+        .collection('courses').doc(courseId)
+        .collection('modules').doc(moduleId)
+        .collection('contentItems').doc(testId)
+        .collection('questions')
+        .get();
+
+    if (snapshot.docs.isEmpty) return [];
+
+    return snapshot.docs.map((doc) => Question.fromFirestore(doc)).toList();
+  } catch (e) {
+    print("Ошибка при загрузке вопросов теста: $e");
+    return [];
+  }
+}
+
+  /// Обновляет существующий тест и его вопросы
+  Future<String?> updateTest({
+    required String courseId,
+    required String moduleId,
+    required String testId,
+    required String title,
+    required int timeLimitMinutes,
+    required int passingPercentage,
+    required bool isStopLesson, // <-- ДОБАВИЛИ ПАРАМЕТР
+    required List<Question> questions,
+  }) async {
+    if (title.isEmpty) return 'Название теста не может быть пустым.';
+
+    final testDocRef = _firestore
+        .collection('courses').doc(courseId)
+        .collection('modules').doc(moduleId)
+        .collection('contentItems').doc(testId);
+
+    try {
+      await testDocRef.update({
+        'title': title,
+        'questionCount': questions.length,
+        'timeLimitMinutes': timeLimitMinutes,
+        'passingPercentage': passingPercentage,
+        'isStopLesson': isStopLesson, // <-- ОБНОВЛЯЕМ В БАЗЕ
+      });
+
+      final oldQuestions = await testDocRef.collection('questions').get();
+      WriteBatch deleteBatch = _firestore.batch();
+      for (var doc in oldQuestions.docs) {
+        deleteBatch.delete(doc.reference);
+      }
+      await deleteBatch.commit();
+
+      WriteBatch addBatch = _firestore.batch();
+      for (var question in questions) {
+        final questionDocRef = testDocRef.collection('questions').doc();
+        addBatch.set(questionDocRef, {
+          'questionText': question.questionText,
+          'imageUrl': question.imageUrl,
+          'options': question.options.map((opt) => {'text': opt.text, 'isCorrect': opt.isCorrect}).toList(),
+        });
+      }
+      await addBatch.commit();
+
+      return null;
+    } on FirebaseException catch (e) {
+      return e.message;
+    }
+  }
+  Future<Map<String, String>?> uploadNewsImageAndThumbnail(XFile imageFile) async {
+    try {
+      print("--- 1. Начинаю загрузку фото для новости...");
+      final String fileName = 'news_${DateTime.now().millisecondsSinceEpoch}';
+      final Uint8List fileBytes = await imageFile.readAsBytes();
+      print("--- 2. Файл прочитан в память.");
+
+      final originalImage = img.decodeImage(fileBytes);
+      if (originalImage == null) {
+        print("!!! ОШИБКА: Не удалось декодировать изображение.");
+        return null;
+      }
+      print("--- 3. Изображение успешно декодировано.");
+
+      final thumbnail = img.copyResize(originalImage, width: 400);
+      print("--- 4. Thumbnail создан.");
+
+      final originalRef = _storage.ref().child('news_images/original/$fileName.jpg');
+      print("--- 5. Загружаю оригинал в Storage...");
+      await originalRef.putData(img.encodeJpg(originalImage, quality: 85));
+      final originalUrl = await originalRef.getDownloadURL();
+      print("--- 6. Оригинал успешно загружен.");
+
+      final thumbRef = _storage.ref().child('news_images/thumb/$fileName.jpg');
+      print("--- 7. Загружаю thumbnail в Storage...");
+      await thumbRef.putData(img.encodeJpg(thumbnail, quality: 75));
+      final thumbUrl = await thumbRef.getDownloadURL();
+      print("--- 8. Thumbnail успешно загружен. Все готово!");
+
+      return {'imageUrl': originalUrl, 'thumbnailUrl': thumbUrl};
+    } catch (e) {
+      print("!!! ПРОИЗОШЛА КРИТИЧЕСКАЯ ОШИБКА ВО ВРЕМЯ ЗАГРУЗКИ: $e");
+      if (e is FirebaseException) {
+        print("!!! КОД ОШИБКИ FIREBASE: ${e.code}");
+      }
+      return null;
+    }
+  }
+  
+
   Future<String?> addTest({
     required String courseId,
     required String moduleId,
     required String title,
-    required int timeLimitMinutes, // Новое поле
-    required int passingPercentage, // Новое поле
+    required int timeLimitMinutes,
+    required int passingPercentage,
+    required bool isStopLesson, // <-- ДОБАВИЛИ ПАРАМЕТР
     required List<Question> questions,
   }) async {
     if (title.isEmpty) return 'Название теста не может быть пустым.';
@@ -466,13 +594,13 @@ class AdminViewModel extends ChangeNotifier {
     try {
       final testDocRef = _firestore.collection('courses').doc(courseId).collection('modules').doc(moduleId).collection('contentItems').doc();
 
-      // Сохраняем новые поля
       await testDocRef.set({
         'type': 'test',
         'title': title,
         'questionCount': questions.length,
         'timeLimitMinutes': timeLimitMinutes,
-  'passingPercentage': passingPercentage,
+        'passingPercentage': passingPercentage,
+        'isStopLesson': isStopLesson, // <-- СОХРАНЯЕМ В БАЗУ
         'createdAt': Timestamp.now(),
       });
 
@@ -481,7 +609,7 @@ class AdminViewModel extends ChangeNotifier {
         final questionDocRef = testDocRef.collection('questions').doc();
         batch.set(questionDocRef, {
           'questionText': question.questionText,
-          'imageUrl': question.imageUrl, // Сохраняем URL картинки
+          'imageUrl': question.imageUrl,
           'options': question.options.map((opt) => {'text': opt.text, 'isCorrect': opt.isCorrect}).toList(),
         });
       }
@@ -559,6 +687,78 @@ Future<String?> addMaterial({
     return e.message;
   }
 }
+  Future<String?> updateMaterial({
+    required String courseId,
+    required String moduleId,
+    required String contentId,
+    required String title,
+    // Для файла передаем PlatformFile, если его меняли
+    PlatformFile? newFile,
+    // А также URL старого файла, чтобы его удалить
+    String? oldFileUrl,
+  }) async {
+    try {
+      String fileUrl = oldFileUrl ?? '';
+      String fileName = '';
+      String fileType = '';
+
+      // Если был выбран новый файл
+      if (newFile != null) {
+        // Удаляем старый файл из Storage, если он был
+        if (oldFileUrl != null && oldFileUrl.isNotEmpty) {
+          try {
+            await _storage.refFromURL(oldFileUrl).delete();
+          } catch (e) {
+            print("Не удалось удалить старый файл (возможно, его нет): $e");
+          }
+        }
+        // Загружаем новый
+        fileUrl = await uploadCourseMaterial(newFile) ?? '';
+        fileName = newFile.name;
+        fileType = newFile.extension ?? '';
+      }
+
+      // Обновляем документ в Firestore
+      await _firestore
+          .collection('courses').doc(courseId)
+          .collection('modules').doc(moduleId)
+          .collection('contentItems').doc(contentId)
+          .update({
+            'title': title,
+            // Если файл не меняли, эти поля останутся прежними
+            if (newFile != null) ...{
+              'fileUrl': fileUrl,
+              'fileName': fileName,
+              'fileType': fileType,
+            }
+          });
+      return null;
+    } on FirebaseException catch (e) {
+      return e.message;
+    }
+  }
+  Future<void> uploadImage(XFile imageFile) async {
+    // 1. Проверяем размер файла
+    final fileSizeInBytes = await imageFile.length();
+    final fileSizeInMB = fileSizeInBytes / (1024 * 1024);
+
+    // Ваше ограничение в правилах - 5 МБ
+    const maxSizeInMB = 5.0; 
+
+    if (fileSizeInMB > maxSizeInMB) {
+      // 2. Если файл слишком большой, показываем ошибку и не начинаем загрузку
+      print('Ошибка: Файл слишком большой (${fileSizeInMB.toStringAsFixed(2)} MB). Максимальный размер: $maxSizeInMB MB.');
+      // Здесь можно показать SnackBar или диалоговое окно пользователю
+      // ScaffoldMessenger.of(context).showSnackBar(
+      //   SnackBar(content: Text('Файл слишком большой! Максимум $maxSizeInMB МБ.')),
+      // );
+      return; // Прерываем выполнение функции
+    }
+
+    // 3. Если проверка пройдена, начинаем загрузку
+    print('Размер файла в норме. Начинаю загрузку...');
+    // await _adminViewModel.uploadCourseImageAndThumbnail(imageFile);
+  }
 
   Future<String?> deleteContentItem({
     required String courseId,
@@ -638,4 +838,50 @@ Future<List<MockTest>> fetchAllMockTests() async {
       return e.message;
     }
   }
+  Future<List<Subject>> fetchSubjects() async {
+    try {
+      final snapshot = await _firestore.collection('subjects').get();
+      return snapshot.docs.map((doc) => Subject.fromFirestore(doc)).toList();
+    } catch (e) { return []; }
+  }
+
+  Future<Map<String, String>?> uploadCourseImageAndThumbnail(XFile imageFile) async {
+    try {
+      print("--- 1. Начинаю загрузку фото для курса...");
+      final String fileName = 'course_${DateTime.now().millisecondsSinceEpoch}';
+      final Uint8List fileBytes = await imageFile.readAsBytes();
+      print("--- 2. Файл прочитан в память.");
+
+      final originalImage = img.decodeImage(fileBytes);
+      if (originalImage == null) {
+        print("!!! ОШИБКА: Не удалось декодировать изображение.");
+        return null;
+      }
+      print("--- 3. Изображение успешно декодировано.");
+
+      final thumbnail = img.copyResize(originalImage, width: 400);
+      print("--- 4. Thumbnail создан.");
+
+      final originalRef = _storage.ref().child('course_images/original/$fileName.jpg');
+      print("--- 5. Загружаю оригинал в Storage...");
+      await originalRef.putData(img.encodeJpg(originalImage, quality: 85));
+      final originalUrl = await originalRef.getDownloadURL();
+      print("--- 6. Оригинал успешно загружен.");
+
+      final thumbRef = _storage.ref().child('course_images/thumb/$fileName.jpg');
+      print("--- 7. Загружаю thumbnail в Storage...");
+      await thumbRef.putData(img.encodeJpg(thumbnail, quality: 75));
+      final thumbUrl = await thumbRef.getDownloadURL();
+      print("--- 8. Thumbnail успешно загружен. Все готово!");
+
+      return {'imageUrl': originalUrl, 'thumbnailUrl': thumbUrl};
+    } catch (e) {
+      print("!!! ПРОИЗОШЛА КРИТИЧЕСКАЯ ОШИБКА ВО ВРЕМЯ ЗАГРУЗКИ: $e");
+      if (e is FirebaseException) {
+        print("!!! КОД ОШИБКИ FIREBASE: ${e.code}");
+      }
+      return null;
+    }
+  }
+
 }

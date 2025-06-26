@@ -23,6 +23,44 @@
           "other_platform_oauth_client": []
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:587613420902:android:6de7f65370bdf9a98e5ca7",
+        "android_client_info": {
+          "package_name": "com.example.online_edu_app_flutter.admin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAoJMg5a0J6vQgGnZ15L-ziVjJCej8XYm8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:587613420902:android:1b3372ffe0c9cca48e5ca7",
+        "android_client_info": {
+          "package_name": "com.example.online_edu_app_flutter.student"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAoJMg5a0J6vQgGnZ15L-ziVjJCej8XYm8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
     }
   ],
   "configuration_version": "1"

@@ -44,7 +44,7 @@ class NewsFeedScreen extends StatelessWidget {
             // Основной список новостей
             Expanded(
               child: FutureBuilder<List<NewsArticle>>(
-                future: Provider.of<NewsViewModel>(context, listen: false).fetchAllNews(),
+                future: Provider.of<NewsViewModel>(context, listen: false).fetchNewsPaginated(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());

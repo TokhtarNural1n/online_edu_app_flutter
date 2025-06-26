@@ -8,30 +8,36 @@ class ContentItem {
   final String title;
   final Timestamp createdAt;
   final ContentType type;
+  final bool isStopLesson;
 
   // Поля для урока
   final String? duration;
   final String? videoUrl;
   final String? content;
+  final String? additionalInfoTitle;   // <-- НОВОЕ ПОЛЕ
+  final String? additionalInfoContent; // <-- НОВОЕ ПОЛЕ
 
   // Поля для теста
   final int? questionCount;
   final int? timeLimitMinutes;
   final int? passingPercentage;
 
-  // --- НОВЫЕ ПОЛЯ ДЛЯ МАТЕРИАЛОВ ---
+  // Поля для материалов
   final String? fileUrl;
   final String? fileName;
-  final String? fileType; // 'pdf', 'pptx', 'png' и т.д.
+  final String? fileType;
 
   ContentItem({
     required this.id,
     required this.title,
     required this.createdAt,
     required this.type,
+    this.isStopLesson = false,
     this.duration,
     this.videoUrl,
     this.content,
+    this.additionalInfoTitle,      // <-- В КОНСТРУКТОР
+    this.additionalInfoContent,    // <-- В КОНСТРУКТОР
     this.questionCount,
     this.timeLimitMinutes,
     this.passingPercentage,
@@ -55,9 +61,12 @@ class ContentItem {
       title: data['title'] ?? 'Без названия',
       createdAt: data['createdAt'] ?? Timestamp.now(),
       type: type,
+      isStopLesson: data['isStopLesson'] ?? false,
       duration: data['duration'],
       videoUrl: data['videoUrl'],
       content: data['content'],
+      additionalInfoTitle: data['additionalInfoTitle'], // <-- ИЗ FIRESTORE
+      additionalInfoContent: data['additionalInfoContent'], // <-- ИЗ FIRESTORE
       questionCount: data['questionCount'],
       timeLimitMinutes: data['timeLimitMinutes'],
       passingPercentage: data['passingPercentage'],

@@ -6,9 +6,9 @@ import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../models/lesson_model.dart';
 import '../view_models/course_view_model.dart';
 
+
 class LessonPlayerScreen extends StatefulWidget {
   final Lesson lesson;
-  // Нам нужен ID курса, чтобы сохранить прогресс
   final String courseId; 
 
   const LessonPlayerScreen({
@@ -23,30 +23,23 @@ class LessonPlayerScreen extends StatefulWidget {
 
 class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
   late YoutubePlayerController _controller;
-  bool _isCompleted = false; // Флаг, чтобы отметить урок пройденным только один раз
+  bool _isCompleted = false;
 
   @override
   void initState() {
     super.initState();
     final videoId = YoutubePlayer.convertUrlToId(widget.lesson.videoUrl);
-
     _controller = YoutubePlayerController(
       initialVideoId: videoId ?? '',
-      flags: const YoutubePlayerFlags(autoPlay: true),
-    )..addListener(_playerListener); // Добавляем "слушателя" состояний
+      flags: const YoutubePlayerFlags(autoPlay: false, forceHD: false),
+    )..addListener(_playerListener);
   }
 
   void _playerListener() {
-    // Если видео закончилось и мы еще не отмечали его как пройденное
     if (_controller.value.playerState == PlayerState.ended && !_isCompleted) {
-      setState(() {
-        _isCompleted = true;
-      });
-      // Вызываем метод из ViewModel для сохранения прогресса
+      setState(() { _isCompleted = true; });
       Provider.of<CourseViewModel>(context, listen: false)
           .markContentAsCompleted(widget.courseId, widget.lesson.id);
-
-      // Показываем уведомление
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Урок пройден!'), backgroundColor: Colors.green),
       );
@@ -75,10 +68,13 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(height: 16),
                     Text(widget.lesson.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                     const Divider(height: 32),
                     Text(widget.lesson.content, style: const TextStyle(fontSize: 16, height: 1.5)),
+                    
+                    // --- НОВЫЙ БЛОК ДЛЯ ДОП. ИНФОРМАЦИИ ---
+                    if (widget.lesson.additionalInfoTitle != null && widget.lesson.additionalInfoTitle!.isNotEmpty)
+                      _buildAdditionalInfoSection(),
                   ],
                 ),
               ),
@@ -86,6 +82,29 @@ class _LessonPlayerScreenState extends State<LessonPlayerScreen> {
           ),
         );
       },
+    );
+  }
+  
+  // Виджет для отображения доп. информации
+  Widget _buildAdditionalInfoSection() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(height: 32),
+          Text(
+            widget.lesson.additionalInfoTitle!,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          if (widget.lesson.additionalInfoContent != null && widget.lesson.additionalInfoContent!.isNotEmpty)
+            Text(
+              widget.lesson.additionalInfoContent!,
+              style: const TextStyle(fontSize: 16, height: 1.5, color: Colors.black87),
+            ),
+        ],
+      ),
     );
   }
 }

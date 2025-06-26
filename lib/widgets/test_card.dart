@@ -1,5 +1,3 @@
-// lib/widgets/test_card.dart
-
 import 'package:flutter/material.dart';
 
 class TestCard extends StatelessWidget {
@@ -9,7 +7,7 @@ class TestCard extends StatelessWidget {
   final int questionCount;
   final int studentCount;
   final bool isPassed;
-  final VoidCallback? onTap; // Добавляем колбэк для нажатия
+  final VoidCallback? onTap;
 
   const TestCard({
     super.key,
@@ -19,24 +17,28 @@ class TestCard extends StatelessWidget {
     required this.questionCount,
     required this.studentCount,
     this.isPassed = false,
-    this.onTap, // Делаем его необязательным
+    this.onTap,
   });
 
-  // Вспомогательный метод для выбора иконки по предмету
+  // --- ОБНОВЛЕННЫЙ МЕТОД ДЛЯ ВЫБОРА ИКОНКИ ---
   IconData _getIconForSubject(String subject) {
     String lowerCaseSubject = subject.toLowerCase();
-    if (lowerCaseSubject.contains('матем')) {
+    if (lowerCaseSubject.contains('матем')) { // Математика, Математикалық
       return Icons.calculate_outlined;
-    } else if (lowerCaseSubject.contains('истор')) {
+    } else if (lowerCaseSubject.contains('тарих')) { // Тарих, История
       return Icons.account_balance_outlined;
-    } else if (lowerCaseSubject.contains('хим')) {
+    } else if (lowerCaseSubject.contains('хим')) { // Химия
       return Icons.science_outlined;
-    } else if (lowerCaseSubject.contains('физик')) {
+    } else if (lowerCaseSubject.contains('физик')) { // Физика
       return Icons.flash_on_outlined;
-    } else if (lowerCaseSubject.contains('информ')) {
+    } else if (lowerCaseSubject.contains('информ')) { // Информатика
       return Icons.computer_outlined;
-    } else if (lowerCaseSubject.contains('биолог')) {
+    } else if (lowerCaseSubject.contains('биолог')) { // Биология
       return Icons.biotech_outlined;
+    } else if (lowerCaseSubject.contains('ағылшын') || lowerCaseSubject.contains('англ')) { // Ағылшын тілі, Английский
+      return Icons.language_outlined;
+    } else if (lowerCaseSubject.contains('географ')) { // География
+      return Icons.public_outlined;
     }
     return Icons.quiz_outlined; // Иконка по умолчанию
   }
@@ -48,40 +50,26 @@ class TestCard extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       margin: const EdgeInsets.only(bottom: 16.0),
       child: InkWell(
-        onTap: onTap, // Используем колбэк здесь
+        onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // --- Большая иконка слева ---
               Icon(
                 _getIconForSubject(subject),
                 size: 40,
                 color: Theme.of(context).primaryColor,
               ),
               const SizedBox(width: 16),
-
-              // --- Колонка с основной информацией ---
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 6),
-                    Text(
-                      subject,
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-                    ),
+                    Text(subject, style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -94,18 +82,13 @@ class TestCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-
-              // --- Статус "Пройден" справа ---
               if (isPassed)
                 Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Icon(Icons.check_circle, color: Colors.green, size: 28),
                     const SizedBox(height: 4),
-                    const Text(
-                      'Пройден',
-                      style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.w600),
-                    ),
+                    const Text('Пройден', style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.w600)),
                   ],
                 )
             ],

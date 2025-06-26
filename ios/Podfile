@@ -1,5 +1,5 @@
 # Uncomment this line to define a global platform for your project
-platform :ios, '13.0'
+platform :ios, '13.0' # Ваша версия iOS
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -23,7 +23,30 @@ def flutter_root
   raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
 end
 
+# Подключаем podhelper.rb
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+# --- НАЧАЛО БЛОКА: ОПРЕДЕЛЕНИЕ НАСТРОЕК FLAVORS ---
+# Определяем настройки для каждого flavor
+$flavor_config = {
+  'student' => {
+    'bundle_suffix' => '.student',
+    'info_plist' => 'Runner/Info-student.plist',
+  },
+  'admin' => {
+    'bundle_suffix' => '.admin',
+    'info_plist' => 'Runner/Info-admin.plist',
+  },
+}
+
+# Вспомогательная функция для определения текущего flavor по имени конфигурации
+def get_current_flavor(config_name)
+  $flavor_config.keys.each do |flavor|
+    return flavor if config_name.include?(flavor)
+  end
+  return nil # Если flavor не найден (например, для базовых Debug/Release)
+end
+# --- КОНЕЦ БЛОКА: ОПРЕДЕЛЕНИЕ НАСТРОЕК FLAVORS ---
 
 flutter_ios_podfile_setup
 
@@ -32,13 +55,34 @@ target 'Runner' do
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-end
 
-# Этот блок важен для правильной настройки всех зависимостей
+end # Конец блока target 'Runner'
+
+# Этот блок важен для правильной настройки всех зависимостей, включая flavors
 post_install do |installer|
   installer.pods_project.targets.each do |target|
+    # Вызываем оригинальный хелпер (он может устанавливать некоторые необходимые настройки)
     flutter_additional_ios_build_settings(target)
+
     target.build_configurations.each do |config|
+      # Определяем текущий flavor для данной конфигурации сборки
+      current_flavor = get_current_flavor(config.name)
+
+      if current_flavor
+        flavor_settings = $flavor_config[current_flavor]
+        
+        # Напрямую устанавливаем Bundle Identifier для текущего flavor
+        config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = "$(PRODUCT_BUNDLE_IDENTIFIER)#{flavor_settings['bundle_suffix']}"
+        
+        # Напрямую устанавливаем Info.plist файл для текущего flavor
+        config.build_settings['INFOPLIST_FILE'] = flavor_settings['info_plist']
+
+        # Если у вас есть Display Name, которое зависит от flavor и определено в Podfile
+        # config.build_settings['PRODUCT_NAME'] = "$(PRODUCT_NAME)#{flavor_settings['display_name_suffix']}"
+
+      end
+
+      # Убедитесь, что IPHONEOS_DEPLOYMENT_TARGET установлен для всех конфигураций
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
     end
   end

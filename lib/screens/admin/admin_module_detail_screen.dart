@@ -1,3 +1,5 @@
+// lib/screens/admin/admin_module_detail_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/content_item_model.dart';
@@ -40,7 +42,6 @@ class _AdminModuleDetailScreenState extends State<AdminModuleDetailScreen> {
     setState(() { _loadContent(); });
   }
 
-  // --- НОВОЕ МЕНЮ ВЫБОРА ---
   void _showAddContentMenu() {
     showModalBottomSheet(
       context: context,
@@ -51,9 +52,10 @@ class _AdminModuleDetailScreenState extends State<AdminModuleDetailScreen> {
               leading: const Icon(Icons.video_collection_outlined),
               title: const Text('Добавить видеоурок'),
               onTap: () async {
-                Navigator.pop(context); // Закрываем меню
-                final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => 
-                  AdminLessonScreen(courseId: widget.courseId, moduleId: widget.moduleId)
+                Navigator.pop(context);
+                // Передаем null, так как это создание нового урока
+                final result = await Navigator.push(context, MaterialPageRoute(builder: (_) =>
+                  AdminLessonScreen(courseId: widget.courseId, moduleId: widget.moduleId, lessonToEdit: null)
                 ));
                 if (result == true) _refreshContentList();
               },
@@ -61,9 +63,8 @@ class _AdminModuleDetailScreenState extends State<AdminModuleDetailScreen> {
             ListTile(
               leading: const Icon(Icons.quiz_outlined),
               title: const Text('Добавить тест'),
-              onTap: () async { // <-- Делаем асинхронным
-                Navigator.pop(context); // Закрываем меню
-                // Переходим на новый экран
+              onTap: () async {
+                Navigator.pop(context);
                 final result = await Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -73,16 +74,15 @@ class _AdminModuleDetailScreenState extends State<AdminModuleDetailScreen> {
                     ),
                   ),
                 );
-                // Если вернулись с результатом, обновляем список
                 if (result == true) _refreshContentList();
               },
             ),
             ListTile(
               leading: const Icon(Icons.attach_file_outlined),
               title: const Text('Добавить материал'),
-              onTap: () async { // <-- Делаем асинхронным
-                Navigator.pop(context); // Закрываем меню
-                final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => 
+              onTap: () async {
+                Navigator.pop(context);
+                final result = await Navigator.push(context, MaterialPageRoute(builder: (_) =>
                   AdminAddMaterialScreen(courseId: widget.courseId, moduleId: widget.moduleId)
                 ));
                 if (result == true) _refreshContentList();
@@ -93,8 +93,50 @@ class _AdminModuleDetailScreenState extends State<AdminModuleDetailScreen> {
       },
     );
   }
+  
+    // --- НОВЫЙ МЕТОД ДЛЯ НАВИГАЦИИ НА ЭКРАН РЕДАКТИРОВАНИЯ ---
+  void _navigateToEditScreen(ContentItem item) async {
+    bool? result;
+    
+    if (item.type == ContentType.lesson) {
+      result = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => AdminLessonScreen(
+          courseId: widget.courseId,
+          moduleId: widget.moduleId,
+          lessonToEdit: item,
+        )),
+      );
+    } else if (item.type == ContentType.test) {
+      result = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => AdminAddTestScreen(
+          courseId: widget.courseId,
+          moduleId: widget.moduleId,
+          testToEdit: item,
+        )),
+      );
+    } else if (item.type == ContentType.material) {
+      result = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => AdminAddMaterialScreen(
+          courseId: widget.courseId,
+          moduleId: widget.moduleId,
+          materialToEdit: item,
+        )),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Редактирование для типа "${item.type.name}" не реализовано'))
+      );
+      return;
+    }
+    
+    if (result == true) {
+      _refreshContentList();
+    }
+  }
 
-  // Вспомогательная функция для получения иконки по типу контента
   IconData _getIconForContentType(ContentType type) {
     switch (type) {
       case ContentType.lesson: return Icons.video_collection_outlined;
@@ -125,13 +167,25 @@ class _AdminModuleDetailScreenState extends State<AdminModuleDetailScreen> {
               return ListTile(
                 leading: Icon(_getIconForContentType(item.type)),
                 title: Text(item.title),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  onPressed: () async {
-                    await Provider.of<AdminViewModel>(context, listen: false)
-                        .deleteContentItem(courseId: widget.courseId, moduleId: widget.moduleId, contentId: item.id);
-                    _refreshContentList();
-                  },
+                // --- ИЗМЕНЕНИЕ ЗДЕСЬ: ДОБАВИЛИ КНОПКУ РЕДАКТИРОВАНИЯ ---
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, color: Colors.blueAccent),
+                      onPressed: () => _navigateToEditScreen(item),
+                      tooltip: 'Редактировать',
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () async {
+                        await Provider.of<AdminViewModel>(context, listen: false)
+                            .deleteContentItem(courseId: widget.courseId, moduleId: widget.moduleId, contentId: item.id);
+                        _refreshContentList();
+                      },
+                      tooltip: 'Удалить',
+                    ),
+                  ],
                 ),
               );
             },
@@ -140,7 +194,7 @@ class _AdminModuleDetailScreenState extends State<AdminModuleDetailScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'module_detail_fab',
-        onPressed: _showAddContentMenu, // <-- Вызываем новое меню
+        onPressed: _showAddContentMenu,
         child: const Icon(Icons.add),
         tooltip: 'Добавить контент',
       ),

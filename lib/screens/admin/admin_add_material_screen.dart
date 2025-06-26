@@ -3,17 +3,20 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../models/content_item_model.dart';
 import '../../view_models/admin_view_model.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 class AdminAddMaterialScreen extends StatefulWidget {
   final String courseId;
   final String moduleId;
+  final ContentItem? materialToEdit; // <-- Поле для редактирования
 
   const AdminAddMaterialScreen({
     super.key,
     required this.courseId,
     required this.moduleId,
+    this.materialToEdit,
   });
 
   @override
@@ -24,14 +27,20 @@ class _AdminAddMaterialScreenState extends State<AdminAddMaterialScreen> {
   final _titleController = TextEditingController();
   PlatformFile? _selectedFile;
   bool _isLoading = false;
+  bool get isEditing => widget.materialToEdit != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (isEditing) {
+      _titleController.text = widget.materialToEdit!.title;
+    }
+  }
 
   Future<void> _pickFile() async {
-    // Мы просим file_picker также считать содержимое файла в память (особенно важно для веба)
     FilePickerResult? result = await FilePicker.platform.pickFiles(
-      // withData: true обязательно для веба, для мобильных устройств мы используем путь
       withData: kIsWeb,
     );
-
     if (result != null) {
       setState(() {
         _selectedFile = result.files.first;
@@ -40,9 +49,16 @@ class _AdminAddMaterialScreenState extends State<AdminAddMaterialScreen> {
   }
 
   void _handleSave() async {
-    if (_titleController.text.isEmpty || _selectedFile == null) {
+    if (_titleController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Пожалуйста, введите название и выберите файл.'),
+        content: Text('Пожалуйста, введите название материала.'),
+      ));
+      return;
+    }
+    // В режиме создания файл обязателен
+    if (!isEditing && _selectedFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Пожалуйста, выберите файл.'),
       ));
       return;
     }
@@ -50,34 +66,50 @@ class _AdminAddMaterialScreenState extends State<AdminAddMaterialScreen> {
     setState(() { _isLoading = true; });
     final adminViewModel = Provider.of<AdminViewModel>(context, listen: false);
 
-    // 1. Загружаем файл в Storage
-    final fileUrl = await adminViewModel.uploadCourseMaterial(_selectedFile!);
-    if (fileUrl == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ошибка загрузки файла.')));
-      setState(() { _isLoading = false; });
-      return;
-    }
+    String? error;
 
-    // 2. Сохраняем информацию в Firestore
-    await adminViewModel.addMaterial(
-      courseId: widget.courseId,
-      moduleId: widget.moduleId,
-      title: _titleController.text,
-      fileUrl: fileUrl,
-      fileName: _selectedFile!.name,
-      fileType: _selectedFile!.extension ?? '',
-    );
+    if (isEditing) {
+      // РЕЖИМ РЕДАКТИРОВАНИЯ
+      error = await adminViewModel.updateMaterial(
+        courseId: widget.courseId,
+        moduleId: widget.moduleId,
+        contentId: widget.materialToEdit!.id,
+        title: _titleController.text,
+        newFile: _selectedFile,
+        oldFileUrl: widget.materialToEdit!.fileUrl,
+      );
+
+    } else {
+      // РЕЖИМ СОЗДАНИЯ
+      final fileUrl = await adminViewModel.uploadCourseMaterial(_selectedFile!);
+      if (fileUrl == null) {
+        error = 'Ошибка загрузки файла.';
+      } else {
+        error = await adminViewModel.addMaterial(
+          courseId: widget.courseId,
+          moduleId: widget.moduleId,
+          title: _titleController.text,
+          fileUrl: fileUrl,
+          fileName: _selectedFile!.name,
+          fileType: _selectedFile!.extension ?? '',
+        );
+      }
+    }
 
     if (mounted) {
       setState(() { _isLoading = false; });
-      Navigator.of(context).pop(true);
+      if (error == null) {
+        Navigator.of(context).pop(true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Добавить материал')),
+      appBar: AppBar(title: Text(isEditing ? 'Редактировать материал' : 'Добавить материал')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -90,20 +122,24 @@ class _AdminAddMaterialScreenState extends State<AdminAddMaterialScreen> {
             const SizedBox(height: 24),
             OutlinedButton.icon(
               icon: const Icon(Icons.attach_file),
-              label: const Text('Выбрать файл'),
+              label: Text(isEditing ? 'Заменить файл' : 'Выбрать файл'),
               onPressed: _pickFile,
               style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
             ),
             const SizedBox(height: 16),
-            if (_selectedFile != null)
-              Center(child: Text('Выбранный файл: ${_selectedFile!.name}')),
+            Center(
+              child: Text(
+                _selectedFile?.name ?? (isEditing ? 'Текущий файл: ${widget.materialToEdit!.fileName}' : 'Файл не выбран'),
+                style: const TextStyle(color: Colors.grey),
+              )
+            ),
             const Spacer(),
             ElevatedButton(
               onPressed: _isLoading ? null : _handleSave,
               style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
               child: _isLoading
                   ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text('Сохранить материал'),
+                  : Text(isEditing ? 'Сохранить изменения' : 'Добавить'),
             ),
           ],
         ),

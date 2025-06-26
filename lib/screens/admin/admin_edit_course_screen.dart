@@ -1,17 +1,15 @@
-// lib/screens/admin/admin_edit_course_screen.dart
-
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
-
 import '../../models/course_model.dart';
 import '../../models/module_model.dart';
 import '../../models/promo_code_model.dart';
+import '../../models/subject_model.dart';
 import '../../view_models/admin_view_model.dart';
 import 'admin_module_detail_screen.dart';
+import 'package:flutter/services.dart';
 
 class AdminEditCourseScreen extends StatefulWidget {
   final Course course;
@@ -22,22 +20,22 @@ class AdminEditCourseScreen extends StatefulWidget {
 }
 
 class _AdminEditCourseScreenState extends State<AdminEditCourseScreen> {
-  // Контроллеры для основной информации
   late TextEditingController _titleController;
   late TextEditingController _authorController;
   late TextEditingController _descriptionController;
   late TextEditingController _priceController;
   late TextEditingController _originalPriceController;
-  
-  // Контроллер для промокодов
   final _promoCodeCountController = TextEditingController(text: '10');
   
-  // Состояние
   bool _isLoading = false;
   XFile? _imageXFile;
   String? _currentImageUrl;
+  bool _areLessonsSequential = false;
 
-  // Futures для под-коллекций
+  List<Subject> _subjects = [];
+  Subject? _selectedSubject;
+  bool _isSubjectsLoading = true;
+
   late Future<List<Module>> _modulesFuture;
   late Future<List<PromoCode>> _promoCodesFuture;
 
@@ -50,9 +48,24 @@ class _AdminEditCourseScreenState extends State<AdminEditCourseScreen> {
     _priceController = TextEditingController(text: widget.course.price);
     _originalPriceController = TextEditingController(text: widget.course.originalPrice);
     _currentImageUrl = widget.course.imageUrl;
+    _areLessonsSequential = widget.course.areLessonsSequential;
 
-    // Загружаем модули и промокоды при открытии экрана
     _loadSubCollections();
+    _loadSubjects();
+  }
+
+  Future<void> _loadSubjects() async {
+    final adminViewModel = Provider.of<AdminViewModel>(context, listen: false);
+    final subjects = await adminViewModel.fetchSubjects();
+    if (mounted) {
+      setState(() {
+        _subjects = subjects;
+        try {
+          _selectedSubject = _subjects.firstWhere((s) => s.name == widget.course.category);
+        } catch (e) { _selectedSubject = null; }
+        _isSubjectsLoading = false;
+      });
+    }
   }
 
   void _loadSubCollections() {
@@ -63,17 +76,6 @@ class _AdminEditCourseScreenState extends State<AdminEditCourseScreen> {
         _promoCodesFuture = adminViewModel.fetchPromoCodesForCourse(widget.course.id);
       });
     }
-  }
-  
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _authorController.dispose();
-    _descriptionController.dispose();
-    _priceController.dispose();
-    _originalPriceController.dispose();
-    _promoCodeCountController.dispose(); // Не забываем очищать
-    super.dispose();
   }
 
   Future<void> _pickImage() async {
@@ -87,24 +89,44 @@ class _AdminEditCourseScreenState extends State<AdminEditCourseScreen> {
   }
 
   void _handleUpdateCourseDetails() async {
+    if (_selectedSubject == null) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Пожалуйста, выберите категорию курса.')));
+       return;
+    }
     setState(() { _isLoading = true; });
     final adminViewModel = Provider.of<AdminViewModel>(context, listen: false);
+    
+    String? newImageUrl, newThumbnailUrl;
+
+    if (_imageXFile != null) {
+      final imageUrls = await adminViewModel.uploadCourseImageAndThumbnail(_imageXFile!);
+      if (imageUrls != null) {
+        newImageUrl = imageUrls['imageUrl'];
+        newThumbnailUrl = imageUrls['thumbnailUrl'];
+      }
+    }
+
     String? error = await adminViewModel.updateCourse(
       courseId: widget.course.id,
       title: _titleController.text,
       author: _authorController.text,
+      category: _selectedSubject!.name,
       description: _descriptionController.text,
       price: _priceController.text,
       originalPrice: _originalPriceController.text,
-      newImageFile: _imageXFile,
+      areLessonsSequential: _areLessonsSequential,
+      newImageUrl: newImageUrl,
+      newThumbnailUrl: newThumbnailUrl,
       oldImageUrl: widget.course.imageUrl,
     );
+    
     if (mounted) {
       setState(() { _isLoading = false; });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(error == null ? 'Данные курса обновлены!' : 'Ошибка: $error'),
-        backgroundColor: error == null ? Colors.green : Colors.red,
-      ));
+      if (error == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Данные курса обновлены!'), backgroundColor: Colors.green));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ошибка: $error'), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -159,7 +181,7 @@ class _AdminEditCourseScreenState extends State<AdminEditCourseScreen> {
     }
   }
 
-  @override
+   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Редактировать курс')),
@@ -172,9 +194,36 @@ class _AdminEditCourseScreenState extends State<AdminEditCourseScreen> {
           const SizedBox(height: 24),
           _buildTextField(_titleController, 'Название курса'),
           _buildTextField(_authorController, 'Автор курса'),
+          const SizedBox(height: 16),
+          
+          _isSubjectsLoading
+            ? const Center(child: CircularProgressIndicator())
+            : DropdownButtonFormField<Subject>(
+                value: _selectedSubject,
+                hint: const Text('Выберите категорию'),
+                isExpanded: true,
+                items: _subjects.map((Subject subject) {
+                  return DropdownMenuItem<Subject>(value: subject, child: Text(subject.name));
+                }).toList(),
+                onChanged: (Subject? newValue) {
+                  setState(() { _selectedSubject = newValue; });
+                },
+                decoration: const InputDecoration(labelText: 'Категория', border: OutlineInputBorder()),
+              ),
+          const SizedBox(height: 16),
+
           _buildTextField(_descriptionController, 'Описание', maxLines: 5),
-          _buildTextField(_priceController, 'Цена (напр. 150 000 т)'),
+          _buildTextField(_priceController, 'Цена'),
           _buildTextField(_originalPriceController, 'Старая цена (необязательно)'),
+          const SizedBox(height: 16),
+          Card(
+            child: SwitchListTile(
+              title: const Text('Сделать уроки последовательными'),
+              subtitle: const Text('Включите, чтобы уроки стали стоп-уроками.'),
+              value: _areLessonsSequential,
+              onChanged: (value) => setState(() => _areLessonsSequential = value),
+            ),
+          ),
           const SizedBox(height: 16),
           ElevatedButton(onPressed: _isLoading ? null : _handleUpdateCourseDetails, child: const Text('Сохранить информацию о курсе')),
           const Divider(height: 40, thickness: 1),

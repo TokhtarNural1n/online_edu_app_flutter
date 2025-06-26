@@ -72,7 +72,7 @@ class NewsCardV2 extends StatelessWidget {
                 children: [
                   _buildStatIcon(Icons.visibility_outlined, article.viewCount.toString()),
                   const SizedBox(width: 16),
-                  _buildStatIcon(Icons.chat_bubble_outline, '121'), // Заглушка для комментов
+                  _buildStatIcon(Icons.chat_bubble_outline, article.commentCount.toString()),
                   const Spacer(),
                   IconButton(
                     icon: const Icon(Icons.bookmark_border),

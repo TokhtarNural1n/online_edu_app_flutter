@@ -1,3 +1,5 @@
+// lib/screens/admin/admin_edit_news_screen.dart
+
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -7,7 +9,7 @@ import '../../models/news_model.dart';
 import '../../view_models/admin_view_model.dart';
 
 class AdminEditNewsScreen extends StatefulWidget {
-  final NewsArticle article; // Принимаем новость для редактирования
+  final NewsArticle article;
   const AdminEditNewsScreen({super.key, required this.article});
 
   @override
@@ -26,7 +28,7 @@ class _AdminEditNewsScreenState extends State<AdminEditNewsScreen> {
     super.initState();
     _titleController = TextEditingController(text: widget.article.title);
     _contentController = TextEditingController(text: widget.article.content);
-    _currentImageUrl = widget.article.imageUrl;
+    _currentImageUrl = widget.article.imageUrl; // Сохраняем URL текущего изображения
   }
 
   @override
@@ -37,25 +39,47 @@ class _AdminEditNewsScreenState extends State<AdminEditNewsScreen> {
   }
 
   Future<void> _pickImage() async {
-    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
     if (pickedFile != null) {
       setState(() {
         _imageXFile = pickedFile;
-        _currentImageUrl = null; // Убираем старую картинку, чтобы показать новую
+        _currentImageUrl = null;
       });
     }
   }
 
+  // --- ИЗМЕНЕННЫЙ МЕТОД СОХРАНЕНИЯ ---
   void _handleUpdate() async {
     setState(() { _isLoading = true; });
     final adminViewModel = Provider.of<AdminViewModel>(context, listen: false);
 
+    String? newImageUrl;
+    String? newThumbnailUrl;
+
+    // 1. Если было выбрано новое изображение, сначала загружаем его
+    if (_imageXFile != null) {
+      final imageUrls = await adminViewModel.uploadNewsImageAndThumbnail(_imageXFile!);
+      if (imageUrls != null) {
+        newImageUrl = imageUrls['imageUrl'];
+        newThumbnailUrl = imageUrls['thumbnailUrl'];
+      } else {
+        // Если загрузка не удалась, прерываем операцию
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ошибка загрузки нового изображения.')));
+          setState(() { _isLoading = false; });
+        }
+        return;
+      }
+    }
+    
+    // 2. Вызываем метод обновления, передавая либо новые ссылки, либо ничего
     String? error = await adminViewModel.updateNewsArticle(
       newsId: widget.article.id,
       title: _titleController.text,
       content: _contentController.text,
-      newImageFile: _imageXFile,
-      oldImageUrl: widget.article.imageUrl,
+      newImageUrl: newImageUrl, // будет null, если изображение не меняли
+      newThumbnailUrl: newThumbnailUrl, // будет null, если изображение не меняли
+      oldImageUrl: widget.article.imageUrl, // всегда передаем старую ссылку для возможного удаления
     );
 
     if (mounted) {
@@ -89,6 +113,7 @@ class _AdminEditNewsScreenState extends State<AdminEditNewsScreen> {
                 decoration: BoxDecoration(
                   color: Colors.grey.shade200,
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade400),
                 ),
                 child: _buildImagePreview(),
               ),
@@ -124,6 +149,6 @@ class _AdminEditNewsScreenState extends State<AdminEditNewsScreen> {
         child: Image.network(_currentImageUrl!, fit: BoxFit.cover),
       );
     }
-    return const Center(child: Text('Нажмите, чтобы выбрать фото'));
+    return const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.add_a_photo_outlined), Text('Нажмите, чтобы выбрать фото')]));
   }
 }

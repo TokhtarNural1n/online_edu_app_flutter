@@ -35,15 +35,31 @@ class _AdminAddNewsScreenState extends State<AdminAddNewsScreen> {
   }
 
   void _handlePublish() async {
-    setState(() { _isLoading = true; });
-    final adminViewModel = Provider.of<AdminViewModel>(context, listen: false);
+  if (_imageXFile == null) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Пожалуйста, выберите изображение.')));
+    return;
+  }
+  
+  setState(() { _isLoading = true; });
+  final adminViewModel = Provider.of<AdminViewModel>(context, listen: false);
 
-    // 2. Передаем imageXFile, а не imageFile
-    String? error = await adminViewModel.addNewsArticle(
-      title: _titleController.text,
-      content: _contentController.text,
-      imageXFile: _imageXFile,
-    );
+  // 1. Сначала загружаем фото и получаем обе ссылки
+  final imageUrls = await adminViewModel.uploadNewsImageAndThumbnail(_imageXFile!);
+  
+  if (imageUrls == null) {
+    // Обработка ошибки загрузки фото
+    setState(() { _isLoading = false; });
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Не удалось обработать изображение.')));
+    return;
+  }
+
+  // 2. Затем сохраняем новость с полученными ссылками
+  String? error = await adminViewModel.addNewsArticle(
+    title: _titleController.text,
+    content: _contentController.text,
+    imageUrl: imageUrls['imageUrl']!,
+    thumbnailUrl: imageUrls['thumbnailUrl']!,
+  );
 
     if (mounted) {
       setState(() { _isLoading = false; });

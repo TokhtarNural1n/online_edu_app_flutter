@@ -1,7 +1,7 @@
+// lib/screens/course_detail_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:youtube_player_flutter/youtube_player_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/content_item_model.dart';
 import '../models/course_model.dart';
@@ -11,6 +11,7 @@ import '../view_models/course_view_model.dart';
 import 'lesson_player_screen.dart';
 import 'material_detail_screen.dart';
 import 'test_welcome_screen.dart';
+import 'subscription_screen.dart';
 
 class CourseDetailScreen extends StatefulWidget {
   final Course course;
@@ -27,10 +28,7 @@ class NextItemInfo {
 }
 
 class _CourseDetailScreenState extends State<CourseDetailScreen> {
-  // Переключатель удален
-  // bool _hideCompleted = false; 
-  late Future<Course> _courseDetailsFuture;
-  late Future<Set<String>> _progressFuture;
+  late Future<Map<String, dynamic>> _dataFuture;
 
   @override
   void initState() {
@@ -40,13 +38,41 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
 
   void _loadData() {
     final courseViewModel = Provider.of<CourseViewModel>(context, listen: false);
-    _courseDetailsFuture = courseViewModel.fetchCourseDetails(widget.course.id);
-    _progressFuture = courseViewModel.fetchCompletedContentIds(widget.course.id);
+    // Используем вашу новую функцию для загрузки всех данных, включая статус подписки
+    setState(() {
+      _dataFuture = _fetchAllData(courseViewModel);
+    });
+  }
+
+  // --- НОВАЯ, УЛУЧШЕННАЯ ЛОГИКА ОПРЕДЕЛЕНИЯ ЗАБЛОКИРОВАННЫХ УРОКОВ ---
+  Set<String> _getLockedItemIds(Course course, Set<String> completedIds) {
+    final lockedIds = <String>{};
+    bool lockEngaged = false;
+
+    // Проходим по всем урокам всех модулей один раз
+    for (final module in course.modules) {
+      for (final item in module.contentItems) {
+        // Если блокировка уже включена, добавляем ID урока в список заблокированных
+        if (lockEngaged) {
+          lockedIds.add(item.id);
+          continue;
+        }
+
+        // Проверяем, нужно ли включить блокировку
+        // Условие: (глобальная настройка включена ИЛИ это индивидуальный стоп-урок) И (урок не пройден)
+        final bool isStopCondition = (course.areLessonsSequential || item.isStopLesson) && !completedIds.contains(item.id);
+
+        // Блокируем, только если это не простой материал (их можно смотреть всегда)
+        if (isStopCondition && item.type != ContentType.material) {
+          lockEngaged = true;
+        }
+      }
+    }
+    return lockedIds;
   }
 
   NextItemInfo? _findNextContentItem(Course course, Set<String> completedIds) {
     for (final module in course.modules) {
-      // Ищем следующий не пройденный урок или тест, игнорируя материалы
       for (final item in module.contentItems) {
         if (item.type != ContentType.material && !completedIds.contains(item.id)) {
           return NextItemInfo(item, module);
@@ -59,57 +85,64 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          _buildSliverAppBar(context, widget.course),
-          FutureBuilder(
-            future: Future.wait([_courseDetailsFuture, _progressFuture]),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const SliverFillRemaining(child: Center(child: CircularProgressIndicator()));
-              }
-              if (snapshot.hasError) {
-                return SliverToBoxAdapter(child: _buildNoAccessContent(context));
-              }
-              if (!snapshot.hasData) {
-                return const SliverFillRemaining(child: Center(child: Text("Нет данных о курсе.")));
-              }
+      body: FutureBuilder<Map<String, dynamic>>(
+        future: _dataFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return CustomScrollView(slivers: [
+              _buildSliverAppBar(context, widget.course),
+              SliverToBoxAdapter(child: _buildNoAccessContent(context))
+            ]);
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: Text("Нет данных о курсе."));
+          }
 
-              final detailedCourse = snapshot.data![0] as Course;
-              final completedIds = snapshot.data![1] as Set<String>;
+          final detailedCourse = snapshot.data!['course'] as Course;
+          final completedIds = snapshot.data!['progress'] as Set<String>;
+          final isEnrolled = snapshot.data!['isEnrolled'] as bool;
+          // Вычисляем список заблокированных уроков
+          final lockedItemIds = _getLockedItemIds(detailedCourse, completedIds);
+          final nextItemInfo = _findNextContentItem(detailedCourse, completedIds);
 
-              // Логика фильтрации удалена
-              final visibleModules = detailedCourse.modules;
-
-              return SliverList(
+          return CustomScrollView(
+            slivers: [
+              _buildSliverAppBar(context, detailedCourse),
+              SliverToBoxAdapter(child: _buildCourseInfo(context, detailedCourse)),
+              SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
-                    if (index == 0) {
-                      return _buildCourseInfo(context, detailedCourse);
-                    }
-                    final module = visibleModules[index - 1];
-                    return _buildModuleTile(context, detailedCourse, module, completedIds);
+                    final module = detailedCourse.modules[index];
+                    // ---> ИЗМЕНЕНИЕ: Передаем isEnrolled в виджет модуля
+                    return _buildModuleTile(context, detailedCourse, module, completedIds, lockedItemIds, isEnrolled);
                   },
-                  childCount: visibleModules.length + 1,
+                  childCount: detailedCourse.modules.length,
                 ),
-              );
-            },
-          ),
-        ],
-      ),
-      bottomNavigationBar: FutureBuilder(
-        future: Future.wait([_courseDetailsFuture, _progressFuture]),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData || snapshot.hasError) return const SizedBox.shrink();
-          final detailedCourse = snapshot.data![0] as Course;
-          final completedIds = snapshot.data![1] as Set<String>;
-          final nextItemInfo = _findNextContentItem(detailedCourse, completedIds);
-          return _buildBottomButton(context, nextItemInfo, detailedCourse);
+              ),
+            ],
+          );
         },
+      ),
+      bottomNavigationBar: FutureBuilder<Map<String, dynamic>>(
+         future: _dataFuture,
+         builder: (context, snapshot) {
+           if (!snapshot.hasData || snapshot.hasError) return const SizedBox.shrink();
+            final detailedCourse = snapshot.data!['course'] as Course;
+            final completedIds = snapshot.data!['progress'] as Set<String>;
+            // ---> НОВОЕ: Получаем статус подписки
+            final isEnrolled = snapshot.data!['isEnrolled'] as bool;
+            final nextItemInfo = _findNextContentItem(detailedCourse, completedIds);
+           // ---> ИЗМЕНЕНИЕ: Передаем isEnrolled в кнопку
+           return _buildBottomButton(context, nextItemInfo, detailedCourse, completedIds, isEnrolled);
+         }
       ),
     );
   }
 
+  // (Метод _buildSliverAppBar остается без изменений)
   SliverAppBar _buildSliverAppBar(BuildContext context, Course course) {
     return SliverAppBar(
       expandedHeight: 220.0, pinned: true, stretch: true,
@@ -122,6 +155,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
       ),
     );
   }
+
 
   Widget _buildCourseInfo(BuildContext context, Course course) {
     return Padding(
@@ -144,66 +178,88 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
           ]),
           const Divider(height: 32),
           const Text('Программа курса', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          // --- Переключатель "Скрыть пройденные" удален ---
         ],
       ),
     );
   }
 
-  Widget _buildModuleTile(BuildContext context, Course course, Module module, Set<String> completedIds) {
-    // --- ИЗМЕНЕНИЕ: Считаем прогресс только по лекциям и тестам ---
+  Widget _buildModuleTile(BuildContext context, Course course, Module module, Set<String> completedIds, Set<String> lockedIds, bool isEnrolled) {
+    // (Логика подсчета прогресса остается без изменений)
     final trackableItems = module.contentItems.where((item) => item.type != ContentType.material).toList();
     final lectureCount = trackableItems.where((item) => item.type == ContentType.lesson).length;
     final testCount = trackableItems.where((item) => item.type == ContentType.test).length;
-    final fileCount = module.contentItems.where((item) => item.type == ContentType.material).length; // Файлы просто считаем для отображения
+    final fileCount = module.contentItems.where((item) => item.type == ContentType.material).length;
 
     final totalTrackableItems = trackableItems.length;
     final completedItems = trackableItems.where((item) => completedIds.contains(item.id)).length;
     final double progress = (totalTrackableItems > 0) ? (completedItems / totalTrackableItems) : 0.0;
     final progressPercentage = (progress * 100).toInt();
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: ExpansionTile(
-          // ... стили ExpansionTile
-          title: Row(children: [
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(module.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 4),
-                Text('$lectureCount лекция • $fileCount файла • $testCount тест', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(height: 8),
-                if (totalTrackableItems > 0)
-                  Row(children: [
-                    Expanded(child: LinearProgressIndicator(value: progress, backgroundColor: Colors.grey.shade300, minHeight: 6, borderRadius: BorderRadius.circular(3))),
-                    const SizedBox(width: 8),
-                    Text('$progressPercentage%', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                  ])
-              ],
-            )),
-            // ... иконка "play"
-          ]),
-          children: List.generate(module.contentItems.length, (index) {
-            final item = module.contentItems[index];
-            final bool isCompleted = completedIds.contains(item.id);
-            return _buildLessonTile(context, course, module, item, isCompleted, index + 1);
-          }),
+    // Проверяем, заблокирован ли весь модуль (заблокирован первый элемент в нем)
+    final isModuleLocked = !isEnrolled ? false : module.contentItems.isNotEmpty && lockedIds.contains(module.contentItems.first.id);
+
+    return Opacity(
+      opacity: isModuleLocked ? 0.5 : 1.0, // Делаем весь модуль полупрозрачным, если он заблокирован
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: ExpansionTile(
+            backgroundColor: Theme.of(context).primaryColor.withOpacity(0.04),
+            collapsedBackgroundColor: Theme.of(context).cardColor,
+            trailing: isModuleLocked ? const Icon(Icons.lock) : null,
+            title: Row(children: [
+               Expanded(child: Column(
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+                   Text(module.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                   const SizedBox(height: 4),
+                   Text('$lectureCount лекция • $fileCount файла • $testCount тест', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                   const SizedBox(height: 8),
+                   if (totalTrackableItems > 0)
+                     Row(children: [
+                       Expanded(child: LinearProgressIndicator(value: progress, backgroundColor: Colors.grey.shade300, minHeight: 6, borderRadius: BorderRadius.circular(3))),
+                       const SizedBox(width: 8),
+                       Text('$progressPercentage%', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                     ])
+                 ],
+               )),
+            ]),
+            children: List.generate(module.contentItems.length, (index) {
+              final item = module.contentItems[index];
+              final isCompleted = completedIds.contains(item.id);
+              final isLocked = lockedIds.contains(item.id); // Проверяем, заблокирован ли конкретный урок
+              return _buildLessonTile(context, course, module, item, isCompleted, index + 1, isLocked, isEnrolled);
+            }),
+          ),
         ),
       ),
     );
   }
-  
-  Widget _buildLessonTile(BuildContext context, Course course, Module module, ContentItem item, bool isCompleted, int lessonNumber) {
+
+  Widget _buildLessonTile(BuildContext context, Course course, Module module, ContentItem item, bool isCompleted, int lessonNumber, bool isLocked, bool isEnrolled) {
     IconData iconData;
     Color iconColor;
+    Color tileColor = Theme.of(context).primaryColor.withOpacity(0.05);
 
-    if (isCompleted) {
+    final bool isContentLocked = !isEnrolled || isLocked;
+
+    if (!isEnrolled) {
+      // Состояние для НЕ ПОДПИСАННОГО пользователя
+      iconData = Icons.lock_outline;
+      iconColor = Colors.grey.shade500;
+      tileColor = Colors.grey.withOpacity(0.08);
+    } else if (isLocked) {
+      // Состояние для ПОДПИСАННОГО, но урок заблокирован последовательностью
+      iconData = Icons.lock_outline;
+      iconColor = Colors.grey.shade500;
+      tileColor = Colors.grey.withOpacity(0.08);
+    } else if (isCompleted) {
+      // Урок пройден
       iconData = Icons.check_circle;
       iconColor = Colors.green;
     } else {
+      // Урок доступен
       switch (item.type) {
         case ContentType.lesson: iconData = Icons.play_circle_outline; break;
         case ContentType.test: iconData = Icons.list_alt_outlined; break;
@@ -214,66 +270,119 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
     }
 
     return Material(
-      color: Theme.of(context).primaryColor.withOpacity(0.05),
+      color: tileColor,
       child: InkWell(
-        onTap: () async {
-          if (item.type == ContentType.lesson) {
-            final videoId = YoutubePlayer.convertUrlToId(item.videoUrl ?? '');
-            if (videoId != null && videoId.isNotEmpty) {
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => LessonPlayerScreen(lesson: Lesson.fromContentItem(item), courseId: course.id)));
-              setState(() { _loadData(); });
-            }
-          } else if (item.type == ContentType.test) {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => TestWelcomeScreen(courseId: course.id, moduleId: module.id, testItem: item)));
-            setState(() { _loadData(); });
-          } else if (item.type == ContentType.material) {
-            await Navigator.push(context, MaterialPageRoute(builder: (context) => MaterialDetailScreen(materialItem: item)));
-            setState(() { _loadData(); });
+        onTap: () {
+          if (!isEnrolled) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Чтобы получить доступ, приобретите курс.')),
+            );
+            return; // Выходим, если не подписан
           }
+          
+          if (isLocked) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Сначала пройдите предыдущие уроки.')),
+            );
+            return; // Выходим, если урок заблокирован последовательностью
+          }
+          
+          // Логика перехода на экран урока/теста/материала
+          _navigateToContent(item, course, module);
         },
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           child: Row(children: [
             Icon(iconData, color: iconColor),
             const SizedBox(width: 16),
-            Expanded(child: Text('${lessonNumber}. ${item.title}')),
-            if (item.duration != null) Text(item.duration!, style: const TextStyle(color: Colors.grey)),
+            Expanded(child: Text(
+              '${lessonNumber}. ${item.title}',
+              style: TextStyle(color: isContentLocked ? Colors.grey.shade600 : null),
+            )),
+            if (item.duration != null)
+              Text(
+                item.duration!,
+                style: TextStyle(color: isContentLocked ? Colors.grey.shade600 : Colors.grey)
+              ),
           ]),
         ),
       ),
     );
   }
 
-  Widget _buildBottomButton(BuildContext context, NextItemInfo? nextItemInfo, Course course) {
-    final bool isCourseCompleted = nextItemInfo == null;
+  void _navigateToContent(ContentItem item, Course course, Module module) async {
+  if (item.type == ContentType.lesson) {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => LessonPlayerScreen(lesson: Lesson.fromContentItem(item), courseId: course.id)));
+  } else if (item.type == ContentType.test) {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => TestWelcomeScreen(courseId: course.id, moduleId: module.id, testItem: item)));
+  } else if (item.type == ContentType.material) {
+    await Navigator.push(context, MaterialPageRoute(builder: (context) => MaterialDetailScreen(materialItem: item)));
+  }
+  _loadData(); // Обновляем данные после возврата с любого экрана
+}
+
+  Widget _buildBottomButton(BuildContext context, NextItemInfo? nextItemInfo, Course course, Set<String> completedIds, bool isEnrolled) {
+    // ---> НОВОЕ: Логика для НЕ ПОДПИСАННОГО пользователя
+    if (!isEnrolled) {
+      return Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: ElevatedButton(
+          onPressed: () {
+            // Переходим на новый экран подписки и передаем туда информацию о курсе
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => SubscriptionScreen(course: widget.course),
+              ),
+            );
+          },
+          style: ElevatedButton.styleFrom(
+            minimumSize: const Size(double.infinity, 50),
+            backgroundColor: Theme.of(context).primaryColor,
+            foregroundColor: Colors.white,
+          ),
+          // ---> Текст для не подписанных
+          child: const Text('Курсқа тіркелу', style: TextStyle(fontSize: 16)),
+        ),
+      );
+    }
+
+    // --- Старая логика для ПОДПИСАННЫХ пользователей остается ниже ---
+
+    if (nextItemInfo == null) {
+      return Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: ElevatedButton(
+          onPressed: null,
+          style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50), backgroundColor: Colors.green),
+          child: const Text('Курс пройден', style: TextStyle(fontSize: 16, color: Colors.white)),
+        ),
+      );
+    }
+
+    final lockedIds = _getLockedItemIds(course, completedIds);
+    final isNextItemLocked = lockedIds.contains(nextItemInfo.item.id);
+
     return Padding(
       padding: const EdgeInsets.all(12.0),
       child: ElevatedButton(
-        onPressed: isCourseCompleted ? null : () async {
-          final item = nextItemInfo.item;
-          final module = nextItemInfo.module;
-          if (item.type == ContentType.lesson) {
-            final videoId = YoutubePlayer.convertUrlToId(item.videoUrl ?? '');
-            if (videoId != null && videoId.isNotEmpty) {
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => LessonPlayerScreen(lesson: Lesson.fromContentItem(item), courseId: course.id)));
-              setState(() { _loadData(); });
-            }
-          } else if (item.type == ContentType.test) {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => TestWelcomeScreen(courseId: course.id, moduleId: module.id, testItem: item)));
-            setState(() { _loadData(); });
-          }
+        onPressed: isNextItemLocked ? null : () {
+          // Используем новый вспомогательный метод для навигации
+          _navigateToContent(nextItemInfo.item, course, nextItemInfo.module);
         },
         style: ElevatedButton.styleFrom(
           minimumSize: const Size(double.infinity, 50),
           backgroundColor: Theme.of(context).primaryColor,
           foregroundColor: Colors.white,
         ),
-        child: Text(isCourseCompleted ? 'Курс пройден' : 'Продолжить урок', style: const TextStyle(fontSize: 16)),
+        child: Text(isNextItemLocked ? 'Сначала пройдите стоп-урок' : 'Продолжить урок', style: const TextStyle(fontSize: 16)),
       ),
     );
   }
 
-  Widget _buildNoAccessContent(BuildContext context) {
+
+  // (Метод _buildNoAccessContent остается без изменений)
+    Widget _buildNoAccessContent(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 64.0),
       child: Column(
@@ -290,5 +399,21 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
         ],
       ),
     );
+  }
+  Future<Map<String, dynamic>> _fetchAllData(CourseViewModel viewModel) async {
+    final courseId = widget.course.id;
+    // Загружаем все 3 типа данных параллельно
+    final results = await Future.wait([
+      viewModel.fetchCourseDetails(courseId),
+      viewModel.fetchCompletedContentIds(courseId),
+      viewModel.isEnrolledInCourse(courseId), // <-- Добавлена загрузка статуса подписки
+    ]);
+    
+    // Возвращаем результат в виде карты (словаря)
+    return {
+      'course': results[0] as Course,
+      'progress': results[1] as Set<String>,
+      'isEnrolled': results[2] as bool, // <-- Добавлен результат в карту
+    };
   }
 }
